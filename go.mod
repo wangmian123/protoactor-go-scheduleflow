@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/consul/api v1.12.0
 	github.com/opentracing/opentracing-go v1.2.0
-	github.com/orcaman/concurrent-map v0.0.0-20190107190726-7ed82d9cb717
+	github.com/orcaman/concurrent-map v0.0.0-20220509071418-b1f44ce23724
 	github.com/serialx/hashring v0.0.0-20180504054112-49a4782e9908
 	github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72
 	github.com/stretchr/testify v1.7.1
@@ -24,6 +24,7 @@ require (
 	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
 	google.golang.org/grpc v1.46.0
 	google.golang.org/protobuf v1.27.1
+	github.com/facebookgo/inject v0.0.0-20180706035515-f23751cae28b
 )
 
 require (

@@ -17,21 +17,21 @@ type ProcessRegistryValue struct {
 }
 
 type SliceMap struct {
-	LocalPIDs []cmap.ConcurrentMap
+	LocalPIDs []cmap.ConcurrentMap[any]
 }
 
 func newSliceMap() *SliceMap {
 	sm := &SliceMap{}
-	sm.LocalPIDs = make([]cmap.ConcurrentMap, 1024)
+	sm.LocalPIDs = make([]cmap.ConcurrentMap[any], 1024)
 
 	for i := 0; i < len(sm.LocalPIDs); i++ {
-		sm.LocalPIDs[i] = cmap.New()
+		sm.LocalPIDs[i] = cmap.New[any]()
 	}
 
 	return sm
 }
 
-func (s *SliceMap) GetBucket(key string) cmap.ConcurrentMap {
+func (s *SliceMap) GetBucket(key string) cmap.ConcurrentMap[any] {
 	hash := murmur32.Sum32([]byte(key))
 	index := int(hash) % len(s.LocalPIDs)
 
