@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package k8sproxy;
+
+import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
+import "scheduleflow.io/protoactor-go/scheduleflow/pkg/apis/k8sproxy/informer.proto";
+
+option go_package = "k8sproxy";
+
+message Response {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  bytes Resource = 3;
+  Error Error = 4;
+}
+
+message Error {
+  string Message = 1;
+}
+
+message Get {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.GetOptions GetOptions = 3;
+  repeated string SubResources = 4;
+}
+
+message List {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.ListOptions ListOptions = 3;
+}
+
+message Create {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.CreateOptions CreateOptions = 3;
+  bytes Resource = 4;
+  repeated string SubResources = 5;
+}
+
+message Update {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions UpdateOptions = 3;
+  bytes Resource = 4;
+  repeated string SubResources = 5;
+}
+
+message UpdateStatus {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions UpdateOptions = 3;
+  bytes Resource = 4;
+}
+
+message Delete {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.DeleteOptions DeleteOptions = 3;
+  repeated string SubResources = 4;
+}
+
+enum PatchType {
+  JSONPatchType = 0;
+  MergePathType = 1;
+  StrategicMergePatchType = 2;
+  ApplyPatchType = 3;
+}
+
+message Patch {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  PatchType PatchType = 3;
+  bytes Resource = 4;
+  k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions PatchOptions = 5;
+  repeated string SubResources = 6;
+}
