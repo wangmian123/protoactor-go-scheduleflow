@@ -138,7 +138,7 @@ func (api *dynamicAPI) patch(info *k8sproxy.Patch) (interface{}, error) {
 		opt = &metav1.PatchOptions{}
 	}
 
-	patchType, ok := k8sproxy.PatchTypeMap[info.PatchType]
+	patchType, ok := k8sproxy.PatchCodeToType[info.PatchType]
 	if !ok {
 		patchType = types.StrategicMergePatchType
 	}

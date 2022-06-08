@@ -8,14 +8,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var PatchTypeMap map[PatchType]types.PatchType
+var PatchCodeToType map[PatchType]types.PatchType
+var PatchTypeToCode map[types.PatchType]PatchType
 
 func init() {
-	PatchTypeMap = map[PatchType]types.PatchType{
+	PatchCodeToType = map[PatchType]types.PatchType{
 		PatchType_JSONPatchType:           types.JSONPatchType,
 		PatchType_ApplyPatchType:          types.ApplyPatchType,
 		PatchType_MergePathType:           types.MergePatchType,
 		PatchType_StrategicMergePatchType: types.StrategicMergePatchType,
+	}
+
+	PatchTypeToCode = map[types.PatchType]PatchType{
+		types.JSONPatchType:           PatchType_JSONPatchType,
+		types.ApplyPatchType:          PatchType_ApplyPatchType,
+		types.MergePatchType:          PatchType_MergePathType,
+		types.StrategicMergePatchType: PatchType_StrategicMergePatchType,
 	}
 }
 
@@ -121,4 +129,8 @@ func NewSubscribeConfirm(subscribe SubscribeResource) *SubscribeConfirm {
 		Subscribe: &subscribe,
 		Timestamp: &timestamp,
 	}
+}
+
+func (err *Error) Error() string {
+	return err.Message
 }

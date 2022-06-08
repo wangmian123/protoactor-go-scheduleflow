@@ -54,6 +54,10 @@ func (api *dynamicAPI) Process(ctx actor.Context) (interface{}, error) {
 		return api.delete(msg)
 	case *k8sproxy.Patch:
 		return api.patch(msg)
+	case *k8sproxy.Update:
+		return api.update()
+	case *k8sproxy.UpdateStatus:
+		return api.updateStatus()
 	}
 	return nil, nil
 }
