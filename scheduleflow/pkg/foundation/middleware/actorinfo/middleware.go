@@ -3,8 +3,9 @@ package actorinfo
 import (
 	"context"
 
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
+
 	"github.com/asynkron/protoactor-go/actor"
-	"github.com/facebookgo/inject"
 	"github.com/sirupsen/logrus"
 )
 
@@ -79,43 +80,23 @@ func (imp *baseImplement) Goroutine() context.Context {
 // NewMiddlewareProducer receives option to initial middleware
 func NewMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
 	cfg := config{ctx: context.Background()}
-
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
-	return func(next actor.ReceiverFunc) actor.ReceiverFunc {
-		return produceReceiverFunc(next, cfg)
+	started := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) {
+		err := utils.InjectActor(rCtx, utils.NewInjectorItem("", newInformation(rCtx, cfg.ctx)))
+		if err != nil {
+			logrus.Error(err)
+			return
+		}
 	}
-}
 
-func produceReceiverFunc(next actor.ReceiverFunc, cfg config) actor.ReceiverFunc {
-	return func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) {
-		message := env.Message
-		switch message.(type) {
-		case *actor.Started:
-			injectActor(rCtx, cfg)
-
-		case *actor.Stopping:
+	stopping := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) {
+		if cfg.stop != nil {
 			cfg.stop()
 		}
-		next(rCtx, env)
-	}
-}
-
-func injectActor(rCtx actor.ReceiverContext, cfg config) {
-	graph := inject.Graph{}
-	err := graph.Provide(
-		&inject.Object{Value: newInformation(rCtx, cfg.ctx)},
-		&inject.Object{Value: rCtx.Actor(), Name: "_tobeInjected"},
-	)
-	if err != nil {
-		logrus.Errorf("can not inject actor information due to error: %v", err)
-		return
 	}
 
-	err = graph.Populate()
-	if err != nil {
-		logrus.Errorf("can not inject actor information due to error: %v", err)
-	}
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).BuildOnStopping(stopping).ProduceReceiverMiddleware()
 }

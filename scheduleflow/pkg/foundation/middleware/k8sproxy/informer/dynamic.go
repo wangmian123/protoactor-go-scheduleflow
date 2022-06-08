@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/client/informer/fundamental"
-	"github.com/facebookgo/inject"
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -128,57 +129,43 @@ func (dy *dynamicInformer) GetResourceStore(target *actor.PID, gvr schema.GroupV
 	return dy.gvrMap.Get(formGVRKey(target, gvr))
 }
 
-type Option func(producer *dynamicSubscribeMiddlewareProducer)
+type Option func(producer *config)
 
 func WithTagName(name string) Option {
-	return func(producer *dynamicSubscribeMiddlewareProducer) {
+	return func(producer *config) {
 		producer.tagName = name
 	}
 }
 
-type dynamicSubscribeMiddlewareProducer struct {
+type config struct {
 	tagName string
 }
 
 func NewDynamicSubscribeProducer(opts ...Option) actor.ReceiverMiddleware {
-	producer := &dynamicSubscribeMiddlewareProducer{}
+	producer := &config{}
 	for _, opt := range opts {
 		opt(producer)
 	}
-	return producer.DynamicSubscribeMiddleware
-}
 
-func (dy *dynamicSubscribeMiddlewareProducer) DynamicSubscribeMiddleware(next actor.ReceiverFunc) actor.ReceiverFunc {
-	return func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) {
-		switch envelope.Message.(type) {
-		case *actor.Started:
-			informerPid := actor.NewPID(c.Self().Address, c.Self().Id+"/"+informerName)
-			_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
-			ctx := c.(actor.Context)
+	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) {
+		informerPid := actor.NewPID(c.Self().Address, c.Self().Id+"/"+informerName)
+		_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
+		ctx := c.(actor.Context)
 
-			if !ok {
-				var err error
-				informerPid, err = ctx.SpawnNamed(informer.New(), informerName)
-				if err != nil {
-					logrus.Errorf("spawn informer-server proxy fail due to %v", err)
-				}
-			}
-
-			graph := inject.Graph{}
-			err := graph.Provide(
-				&inject.Object{Value: newDynamicInformer(informerPid), Name: dy.tagName},
-				&inject.Object{Value: c.Actor(), Name: "_tobeInjected"},
-			)
+		if !ok {
+			var err error
+			informerPid, err = ctx.SpawnNamed(informer.New(), informerName)
 			if err != nil {
-				logrus.Errorf("%s, can not inject actor information due to error: %v", logPrefix, err)
+				logrus.Errorf("spawn informer-server proxy fail due to %v", err)
 				return
 			}
-
-			err = graph.Populate()
-			if err != nil {
-				logrus.Errorf("%s, can not inject actor information due to error: %v", logPrefix, err)
-			}
 		}
-		next(c, envelope)
+
+		err := utils.InjectActor(c, utils.NewInjectorItem(producer.tagName, newDynamicInformer(informerPid)))
+		if err != nil {
+			logrus.Error(err)
+			return
+		}
 	}
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
 }

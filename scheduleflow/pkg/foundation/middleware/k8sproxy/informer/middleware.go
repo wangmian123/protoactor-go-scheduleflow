@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/k8sproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/client/informer/fundamental"
-	"github.com/facebookgo/inject"
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
@@ -170,25 +171,22 @@ func (mid *middlewareProducer[R]) ProduceSubscribeMiddleware(target *actor.PID, 
 		Handler: mid.store,
 	}
 
-	return func(next actor.ReceiverFunc) actor.ReceiverFunc {
-		return mid.makeReceiver(subscribeEvent)
-	}
-}
-
-func (mid *middlewareProducer[R]) makeReceiver(subscribeEvent fundamental.SubscribeResourceFrom[R]) actor.ReceiverFunc {
-	return func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) {
-		switch envelope.Message.(type) {
-		case *actor.Started:
-			err := mid.onStart(c, subscribeEvent)
-			if err != nil {
-				logrus.Error(err)
-			}
+	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) {
+		err := mid.onStart(c, subscribeEvent)
+		if err != nil {
+			logrus.Error(err)
 		}
 	}
+
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
 }
 
 func (mid *middlewareProducer[R]) onStart(c actor.ReceiverContext, subscribeEvent fundamental.SubscribeResourceFrom[R]) error {
-	mid.injectActor(c)
+	err := utils.InjectActor(c, utils.NewInjectorItem(mid.injectTag, mid.store))
+	if err != nil {
+		return err
+	}
+
 	ctx := c.(actor.Context)
 
 	informerPid := actor.NewPID(c.Self().Address, c.Self().Id+"/InformerProxy")
@@ -217,21 +215,4 @@ func (mid *middlewareProducer[R]) onStart(c actor.ReceiverContext, subscribeEven
 		return fmt.Errorf("subcribe event with error %s", ack.Message)
 	}
 	return nil
-}
-
-func (mid *middlewareProducer[R]) injectActor(rCtx actor.ReceiverContext) {
-	graph := inject.Graph{}
-	err := graph.Provide(
-		&inject.Object{Value: mid.store, Name: mid.injectTag},
-		&inject.Object{Value: rCtx.Actor(), Name: "_tobeInjected"},
-	)
-	if err != nil {
-		logrus.Errorf("%s, can not inject actor information due to error: %v", logPrefix, err)
-		return
-	}
-
-	err = graph.Populate()
-	if err != nil {
-		logrus.Errorf("%s, can not inject actor information due to error: %v", logPrefix, err)
-	}
 }

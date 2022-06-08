@@ -1,9 +1,9 @@
-package kubernetes_api
+package kubernetes_server
 
 import (
 	"sync"
 
-	dynamic_api "github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/server/kubernetes-api/dynamic"
+	dynamic_api "github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/k8sproxy/server/kubernetes-server/dynamic"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/actorinfo"
