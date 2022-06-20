@@ -5,7 +5,27 @@ import (
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/facebookgo/inject"
+	"github.com/hashicorp/go-uuid"
 )
+
+type TagInjector interface {
+	GetTagName() string
+	GetInjectObject() any
+}
+
+// ReceiverFuncWithBreak return middleware ReceiverFunc function with bool whether to break the entire message
+// process. So be careful when return ture.
+type ReceiverFuncWithBreak func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool
+
+type ReceiverMiddlewareBuilder interface {
+	BuildOnStarted(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	BuildOnStopping(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	BuildOnOther(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	BuildOnStartedDefer(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	BuildOnStoppingDefer(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	BuildOnOtherDefer(ReceiverFuncWithBreak) ReceiverMiddlewareBuilder
+	ProduceReceiverMiddleware() actor.ReceiverMiddleware
+}
 
 type injector struct {
 	tagName string
@@ -27,20 +47,19 @@ func NewInjectorItem(name string, obj interface{}) TagInjector {
 	}
 }
 
-type TagInjector interface {
-	GetTagName() string
-	GetInjectObject() any
-}
-
 func InjectActor(rCtx actor.ReceiverContext, targets ...TagInjector) error {
 	if len(targets) == 0 {
 		return nil
 	}
+	id, err := uuid.GenerateUUID()
+	if err != nil {
+		return err
+	}
 
 	graph := inject.Graph{}
 
-	err := graph.Provide(
-		&inject.Object{Value: rCtx.Actor(), Name: "_tobeInjected"},
+	err = graph.Provide(
+		&inject.Object{Value: rCtx.Actor(), Name: id},
 	)
 
 	for _, tar := range targets {
@@ -68,35 +87,47 @@ func InjectActor(rCtx actor.ReceiverContext, targets ...TagInjector) error {
 	return nil
 }
 
-type ReceiverMiddlewareBuilder interface {
-	BuildOnStarted(actor.ReceiverFunc) ReceiverMiddlewareBuilder
-	BuildOnStopping(actor.ReceiverFunc) ReceiverMiddlewareBuilder
-	BuildOnOther(actor.ReceiverFunc) ReceiverMiddlewareBuilder
-	ProduceReceiverMiddleware() actor.ReceiverMiddleware
-}
-
 type receiverMiddlewareBuilder struct {
-	started  actor.ReceiverFunc
-	general  actor.ReceiverFunc
-	stopping actor.ReceiverFunc
+	started  ReceiverFuncWithBreak
+	general  ReceiverFuncWithBreak
+	stopping ReceiverFuncWithBreak
+
+	startedDefer  ReceiverFuncWithBreak
+	generalDefer  ReceiverFuncWithBreak
+	stoppingDefer ReceiverFuncWithBreak
 }
 
 func NewReceiverMiddlewareBuilder() ReceiverMiddlewareBuilder {
 	return &receiverMiddlewareBuilder{}
 }
 
-func (r *receiverMiddlewareBuilder) BuildOnStarted(started actor.ReceiverFunc) ReceiverMiddlewareBuilder {
+func (r *receiverMiddlewareBuilder) BuildOnStarted(started ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
 	r.started = started
 	return r
 }
 
-func (r *receiverMiddlewareBuilder) BuildOnStopping(general actor.ReceiverFunc) ReceiverMiddlewareBuilder {
+func (r *receiverMiddlewareBuilder) BuildOnStopping(stopping ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
+	r.stopping = stopping
+	return r
+}
+
+func (r *receiverMiddlewareBuilder) BuildOnOther(general ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
 	r.general = general
 	return r
 }
 
-func (r *receiverMiddlewareBuilder) BuildOnOther(stopping actor.ReceiverFunc) ReceiverMiddlewareBuilder {
-	r.stopping = stopping
+func (r *receiverMiddlewareBuilder) BuildOnStartedDefer(started ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
+	r.startedDefer = started
+	return r
+}
+
+func (r *receiverMiddlewareBuilder) BuildOnStoppingDefer(stopping ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
+	r.stoppingDefer = stopping
+	return r
+}
+
+func (r *receiverMiddlewareBuilder) BuildOnOtherDefer(general ReceiverFuncWithBreak) ReceiverMiddlewareBuilder {
+	r.generalDefer = general
 	return r
 }
 
@@ -106,20 +137,55 @@ func (r *receiverMiddlewareBuilder) ProduceReceiverMiddleware() actor.ReceiverMi
 			switch envelope.Message.(type) {
 			case *actor.Started:
 				if r.started != nil {
-					r.started(c, envelope)
+					br := r.started(c, envelope)
+					if br {
+						return
+					}
 				}
 
 			case *actor.Stopping, *actor.Stop:
 				if r.stopping != nil {
-					r.stopping(c, envelope)
+					br := r.stopping(c, envelope)
+					if br {
+						return
+					}
 				}
 
 			default:
 				if r.general != nil {
-					r.general(c, envelope)
+					br := r.general(c, envelope)
+					if br {
+						return
+					}
 				}
 			}
 			next(c, envelope)
+
+			switch envelope.Message.(type) {
+			case *actor.Started:
+				if r.startedDefer != nil {
+					br := r.startedDefer(c, envelope)
+					if br {
+						return
+					}
+				}
+
+			case *actor.Stopping, *actor.Stop:
+				if r.stoppingDefer != nil {
+					br := r.stoppingDefer(c, envelope)
+					if br {
+						return
+					}
+				}
+
+			default:
+				if r.generalDefer != nil {
+					br := r.generalDefer(c, envelope)
+					if br {
+						return
+					}
+				}
+			}
 		}
 	}
 }

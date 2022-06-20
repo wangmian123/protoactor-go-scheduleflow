@@ -5,7 +5,7 @@ import "github.com/asynkron/protoactor-go/actor"
 type ActorProcessor interface {
 	Name() string
 	CanProcess(msg interface{}) bool
-	Process(ctx actor.Context) (interface{}, error)
+	Process(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error)
 }
 
 type ActorProcessorWithInitial interface {
@@ -51,23 +51,22 @@ func (m *managerImplement) CanProcess(msg interface{}) bool {
 	return false
 }
 
-func (m *managerImplement) Process(ctx actor.Context) (interface{}, error) {
-	msg := ctx.Message()
+func (m *managerImplement) Process(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error) {
 	for _, pro := range m.processors {
-		if !pro.CanProcess(msg) {
+		if !pro.CanProcess(env.Message) {
 			continue
 		}
 
-		resp, err := pro.Process(ctx)
+		resp, err := pro.Process(ctx, env)
 		if err != nil {
 			return nil, err
 		}
 
-		if ctx.Sender() == nil || resp == nil {
+		if env.Sender == nil || resp == nil {
 			continue
 		}
 
-		ctx.Respond(resp)
+		ctx.Send(env.Sender, resp)
 	}
 
 	return nil, nil

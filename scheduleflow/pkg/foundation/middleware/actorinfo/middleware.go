@@ -2,6 +2,7 @@ package actorinfo
 
 import (
 	"context"
+	"time"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 
@@ -19,8 +20,9 @@ type ActorBaseInformation interface {
 }
 
 type config struct {
-	ctx  context.Context
-	stop context.CancelFunc
+	ctx     context.Context
+	stop    context.CancelFunc
+	waiting bool
 }
 
 type Option func(*config)
@@ -29,6 +31,12 @@ func WithGoroutineContext(ctx context.Context, stop context.CancelFunc) Option {
 	return func(c *config) {
 		c.ctx = ctx
 		c.stop = stop
+	}
+}
+
+func WithWaitingParentInitial() Option {
+	return func(c *config) {
+		c.waiting = true
 	}
 }
 
@@ -77,6 +85,10 @@ func (imp *baseImplement) Goroutine() context.Context {
 	return imp.goroutine
 }
 
+type querySystemInitialed struct{}
+
+type systemInitialed struct{}
+
 // NewMiddlewareProducer receives option to initial middleware
 func NewMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
 	cfg := config{ctx: context.Background()}
@@ -84,19 +96,45 @@ func NewMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
 		opt(&cfg)
 	}
 
-	started := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) {
+	started := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) bool {
+		if cfg.waiting && rCtx.Parent() != nil {
+			ctx := rCtx.(actor.Context)
+			future := ctx.RequestFuture(rCtx.Parent(), &querySystemInitialed{}, time.Second)
+			result, err := future.Result()
+			if err != nil {
+				logrus.Errorf("querySystemInitialed timeout")
+			}
+
+			_, ok := result.(*systemInitialed)
+			if !ok {
+				logrus.Errorf("expected *systemInitialed but get %T", result)
+			}
+		}
+
 		err := utils.InjectActor(rCtx, utils.NewInjectorItem("", newInformation(rCtx, cfg.ctx)))
 		if err != nil {
 			logrus.Error(err)
-			return
 		}
+		return false
 	}
 
-	stopping := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) {
+	stopping := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) bool {
 		if cfg.stop != nil {
 			cfg.stop()
 		}
+		return false
 	}
 
-	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).BuildOnStopping(stopping).ProduceReceiverMiddleware()
+	unblockChildren := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) bool {
+		switch env.Message.(type) {
+		case *querySystemInitialed:
+			ctx := rCtx.(actor.Context)
+			ctx.Send(env.Sender, &systemInitialed{})
+			return true
+		}
+		return false
+	}
+
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).BuildOnStopping(stopping).
+		BuildOnOther(unblockChildren).ProduceReceiverMiddleware()
 }
