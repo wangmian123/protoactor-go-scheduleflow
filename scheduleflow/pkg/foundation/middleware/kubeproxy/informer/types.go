@@ -12,13 +12,14 @@ import (
 
 var _ fundamental.ResourceEventHandlerFuncs[v1.Pod] = &k8sResourceSubscriberWithStore[v1.Pod]{}
 
-//DynamicEventHandler
+// DynamicEventHandler recalls when resource add, delete or update.
 type DynamicEventHandler interface {
 	AddFunc(resource unstructured.Unstructured)
 	DeleteFunc(resource unstructured.Unstructured)
 	UpdateFunc(oldResource, newResource unstructured.Unstructured)
 }
 
+// DynamicInformer set or get resource informer.
 type DynamicInformer interface {
 	SetResourceHandler(ctx actor.Context, subscribe ...DynamicSubscribe) error
 	GetResourceStore(pid *actor.PID, gvr schema.GroupVersionResource) (KubernetesResourceStore[unstructured.Unstructured], bool)

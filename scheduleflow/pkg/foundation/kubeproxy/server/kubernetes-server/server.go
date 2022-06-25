@@ -39,7 +39,7 @@ func New(cfg *rest.Config) *actor.Props {
 	}, actor.WithReceiverMiddleware(
 		actorinfo.NewMiddlewareProducer(),
 		processor.NewMiddlewareProducer(),
-		informer.NewDynamicSubscribeProducer(),
+		informer.NewDynamicClientMiddlewareProducer(),
 	))
 }
 

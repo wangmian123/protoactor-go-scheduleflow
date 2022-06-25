@@ -10,11 +10,15 @@ import (
 
 // SubscriberInformationMap records recorder pid, gvr and action type
 // map[`recorder.PID + SubscribeEventMap.GVR + SubscribeEventMap.SubscribeAction`]callback
-type SubscriberInformationMap = cmap.ConcurrentMap[Callbacker]
+type SubscriberInformationMap struct {
+	cmap.ConcurrentMap[Callbacker]
+}
 
 // SubscribeEventMap records target pid where subscribed event from.
 // map[`recorder.PID + SubscribeEventMap.GVR + SubscribeEventMap.SubscribeAction`]
-type SubscribeEventMap = cmap.ConcurrentMap[SubscriberInformationMap]
+type SubscribeEventMap struct {
+	cmap.ConcurrentMap[*SubscriberInformationMap]
+}
 
 type Callbacker interface {
 	ReceiveCreateEvent(event kubeproxy.CreateEvent) error

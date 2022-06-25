@@ -5,6 +5,7 @@ import (
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,6 +19,11 @@ const (
 	Fail
 )
 
+type SubscribeSourceInformation interface {
+	SourcePID() *actor.PID
+	SubscribeResource() kubeproxy.SubscribeResource
+}
+
 type ResourceEventHandlerFuncs[R any] interface {
 	AddFunc(resource R)
 	DeleteFunc(resource R)
@@ -26,9 +32,17 @@ type ResourceEventHandlerFuncs[R any] interface {
 }
 
 type SubscribeResourceFrom[R any] struct {
-	Target   *actor.PID
+	Source   *actor.PID
 	Resource kubeproxy.SubscribeResource
 	Handler  ResourceEventHandlerFuncs[R]
+}
+
+func (sub *SubscribeResourceFrom[R]) SourcePID() *actor.PID {
+	return sub.Source
+}
+
+func (sub *SubscribeResourceFrom[R]) SubscribeResource() kubeproxy.SubscribeResource {
+	return sub.Resource
 }
 
 type SubscribeRespond struct {
@@ -50,4 +64,19 @@ func FormKey(pid *actor.PID, gvr *kubeproxy.GroupVersionResource, actionType kub
 
 	return fmt.Sprintf("%s-%s-%s", pidName, gvrName, actionName), nil
 
+}
+
+func FormSubscriberKeys(target *actor.PID, gvr *kubeproxy.GroupVersionResource, code int32) ([]string, error) {
+	actionTypes := kubeproxy.GenerateSubscribeAction(code)
+
+	keys := make([]string, 0, len(actionTypes))
+	for _, actType := range actionTypes {
+		key, err := FormKey(target, gvr, actType)
+		if err != nil {
+			logrus.Errorf("%s from key error %v", LogPrefix, err)
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }

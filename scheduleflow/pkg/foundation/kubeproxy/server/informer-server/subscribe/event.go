@@ -1,17 +1,24 @@
 package subscribe
 
 import (
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/cache"
 )
+
+var json jsoniter.API
+
+func init() {
+	json = jsoniter.ConfigCompatibleWithStandardLibrary
+}
 
 type EventCreator interface {
 	CreateSubscribeEvent(subInfo *kubeproxy.SubscribeResource) cache.ResourceEventHandlerFuncs
@@ -158,4 +165,12 @@ func (s *broker) updateFunc(oldResource, newResource interface{}) {
 		OldResource: buffer,
 		NewResource: bufferObj2,
 	})
+}
+
+func getNestedString(obj map[string]interface{}, fields ...string) string {
+	val, found, err := unstructured.NestedString(obj, fields...)
+	if !found || err != nil {
+		return ""
+	}
+	return val
 }

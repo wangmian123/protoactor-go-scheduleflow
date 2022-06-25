@@ -3,6 +3,7 @@ package informer
 import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/dispacher"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/recorder"
+	cmap "github.com/orcaman/concurrent-map"
 
 	"github.com/sirupsen/logrus"
 
@@ -10,11 +11,6 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/actorinfo"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/processor"
-	cmap "github.com/orcaman/concurrent-map"
-)
-
-const (
-	logPrefix = fundamental.LogPrefix
 )
 
 type informer struct {
@@ -26,7 +22,7 @@ type informer struct {
 
 func New() *actor.Props {
 
-	eventMap := cmap.New[fundamental.SubscriberInformationMap]()
+	eventMap := fundamental.SubscribeEventMap{ConcurrentMap: cmap.New[*fundamental.SubscriberInformationMap]()}
 	producer := func() actor.Actor {
 		return &informer{
 			eventMap: eventMap,

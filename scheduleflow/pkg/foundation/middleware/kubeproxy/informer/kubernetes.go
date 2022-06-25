@@ -32,7 +32,7 @@ func PodMiddlewareProducerWithTagName(tagName string, target *actor.PID, opts ..
 		GVR:    gvr,
 		Option: cfg.SubscribeOption,
 	}
-	producer := MiddlewareProducer[v1.Pod](&podStoreConstraint{}, tagName)
+	producer := NewClientMiddlewareProducer[v1.Pod](&podStoreConstraint{}, tagName)
 	return producer.ProduceSubscribeMiddleware(target, resource, nil)
 }
 
@@ -62,6 +62,6 @@ func NodeMiddlewareProducerWithTagName(tagName string, target *actor.PID, opts .
 		GVR:    gvr,
 		Option: cfg.SubscribeOption,
 	}
-	producer := MiddlewareProducer[v1.Node](&nodeStoreConstraint{}, tagName)
+	producer := NewClientMiddlewareProducer[v1.Node](&nodeStoreConstraint{}, tagName)
 	return producer.ProduceSubscribeMiddleware(target, resource, nil)
 }

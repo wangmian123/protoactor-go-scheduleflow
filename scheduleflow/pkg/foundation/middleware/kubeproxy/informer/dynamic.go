@@ -1,21 +1,17 @@
 package informer
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
 
 	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
-
-const informerName = "InformerProxy"
 
 type DynamicSubscribe struct {
 	Target          *actor.PID
@@ -114,9 +110,15 @@ func (dy *dynamicInformer) SetResourceHandler(ctx actor.Context, subscribe ...Dy
 	}
 
 	if dy.informerPid == nil {
-		informerPid, err := ctx.SpawnNamed(informer.New(), informerName)
-		if err != nil {
-			return fmt.Errorf("spawn informer-server proxy fail due to %v", err)
+		informerPid := actor.NewPID(ctx.Self().Address, informerClient)
+		_, ok := ctx.ActorSystem().ProcessRegistry.Get(informerPid)
+		if !ok {
+			var err error
+			logrus.Warningf("infomer client dose not started when actor start")
+			informerPid, err = ctx.ActorSystem().Root.SpawnNamed(informer.New(), informerClient)
+			if err != nil {
+				logrus.Fatalf("initial informer client fail due to %v", err)
+			}
 		}
 		dy.informerPid = informerPid
 	}
@@ -126,7 +128,7 @@ func (dy *dynamicInformer) SetResourceHandler(ctx actor.Context, subscribe ...Dy
 		resourceStore.handler = convertDynamicEventHandler(subInfo.Handler)
 
 		subscribeEvent := fundamental.SubscribeResourceFrom[unstructured.Unstructured]{
-			Target:   subInfo.Target,
+			Source:   GetPID(subInfo.Target.GetAddress()),
 			Resource: convertSubscribeResource(subInfo.Resource),
 			Handler:  resourceStore,
 		}
@@ -157,33 +159,4 @@ func (dy *dynamicInformer) SetResourceHandler(ctx actor.Context, subscribe ...Dy
 
 func (dy *dynamicInformer) GetResourceStore(target *actor.PID, gvr schema.GroupVersionResource) (KubernetesResourceStore[unstructured.Unstructured], bool) {
 	return dy.gvrMap.Get(formGVRKey(target, gvr))
-}
-
-func NewDynamicSubscribeProducer(opts ...Option) actor.ReceiverMiddleware {
-	producer := &config{}
-	for _, opt := range opts {
-		opt(producer)
-	}
-
-	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
-		informerPid := actor.NewPID(c.Self().Address, c.Self().Id+"/"+informerName)
-		_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
-		ctx := c.(actor.Context)
-
-		if !ok {
-			var err error
-			informerPid, err = ctx.SpawnNamed(informer.New(), informerName)
-			if err != nil {
-				logrus.Errorf("spawn informer-server proxy fail due to %v", err)
-				return false
-			}
-		}
-
-		err := utils.InjectActor(c, utils.NewInjectorItem(producer.tagName, newDynamicInformer(informerPid)))
-		if err != nil {
-			logrus.Error(err)
-		}
-		return false
-	}
-	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
 }

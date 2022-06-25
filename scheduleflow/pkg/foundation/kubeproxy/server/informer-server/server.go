@@ -79,7 +79,7 @@ func New(k8sConfig *rest.Config, opts ...Option) *actor.Props {
 func (inf *informerServer) Receive(ctx actor.Context) {
 	switch ctx.Message().(type) {
 	case *actor.Started:
-		logrus.Infof("=======%s start=======", logPrefix)
+		logrus.Infof("=======%s started at %s:%s=======", logPrefix, ctx.Self().Address, ctx.Self().Id)
 	default:
 	}
 }

@@ -1,9 +1,11 @@
 package informer
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
+
+	informer_server "github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/informer-server"
+	"k8s.io/client-go/rest"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 
@@ -11,98 +13,15 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
-	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	logPrefix = "[ClusterInformerProxy]"
-	timeout   = 30 * time.Second
+	logPrefix      = "[ClusterInformerProxy]"
+	timeout        = 30 * time.Second
+	informerServer = "InformerServer"
+	informerClient = "InformerClient"
 )
-
-//k8sResourceSubscriberWithStore
-type k8sResourceSubscriberWithStore[R any] struct {
-	storeConstraint StoreConstraint[R]
-	handler         fundamental.ResourceEventHandlerFuncs[R]
-	store           cmap.ConcurrentMap[R]
-}
-
-func newK8sResourceSubscribeWithStore[R any](formKey StoreConstraint[R]) *k8sResourceSubscriberWithStore[R] {
-	return &k8sResourceSubscriberWithStore[R]{
-		storeConstraint: formKey,
-		store:           cmap.New[R](),
-	}
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) AddFunc(resource R) {
-	key := k.storeConstraint.FormKey(resource)
-	k.store.Set(key, resource)
-	if k.handler != nil {
-		k.handler.AddFunc(k.storeConstraint.DeepCopy(resource))
-	}
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) DeleteFunc(resource R) {
-	key := k.storeConstraint.FormKey(resource)
-	if k.handler != nil {
-		k.handler.DeleteFunc(k.storeConstraint.DeepCopy(resource))
-	}
-
-	_, ok := k.store.Get(key)
-	if !ok {
-		return
-	}
-	k.store.Remove(key)
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) UpdateFunc(oldResource, newResource R) {
-	key := k.storeConstraint.FormKey(newResource)
-	k.store.Set(key, newResource)
-	if k.handler != nil {
-		k.handler.UpdateFunc(k.storeConstraint.DeepCopy(oldResource), k.storeConstraint.DeepCopy(newResource))
-	}
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) Unmarshal(data []byte) (R, error) {
-	if k.handler.Unmarshal != nil {
-		return k.handler.Unmarshal(data)
-	}
-	var res R
-	err := json.Unmarshal(data, &res)
-	if err != nil {
-		return res, fmt.Errorf("unmarshal gvr error with %v", err)
-	}
-	return res, nil
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) SetResourceHandler(handler fundamental.ResourceEventHandlerFuncs[R]) {
-	k.handler = handler
-	if k.store.IsEmpty() {
-		return
-	}
-	go func() {
-		for _, res := range k.store.Items() {
-			k.handler.AddFunc(k.storeConstraint.DeepCopy(res))
-		}
-	}()
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) Get(resource R) (R, bool) {
-	key := k.storeConstraint.FormKey(resource)
-	raw, ok := k.store.Get(key)
-	if !ok {
-		return *new(R), false
-	}
-	return raw, true
-}
-
-func (k *k8sResourceSubscriberWithStore[R]) List() []R {
-	var list []R
-	for _, value := range k.store.Items() {
-		list = append(list, value)
-	}
-	return list
-}
 
 // middlewareProducer
 type middlewareProducer[R any] struct {
@@ -110,7 +29,7 @@ type middlewareProducer[R any] struct {
 	injectTag string
 }
 
-func MiddlewareProducer[R any](constraint StoreConstraint[R], tagName string) *middlewareProducer[R] {
+func NewClientMiddlewareProducer[R any](constraint StoreConstraint[R], tagName string) *middlewareProducer[R] {
 	store := newK8sResourceSubscribeWithStore(constraint)
 	return &middlewareProducer[R]{
 		store:     store,
@@ -122,7 +41,7 @@ func (mid *middlewareProducer[R]) ProduceSubscribeMiddleware(target *actor.PID, 
 	handler fundamental.ResourceEventHandlerFuncs[R]) actor.ReceiverMiddleware {
 	mid.store.handler = handler
 	subscribeEvent := fundamental.SubscribeResourceFrom[R]{
-		Target: target,
+		Source: GetPID(target.GetAddress()),
 		Resource: kubeproxy.SubscribeResource{
 			GVR:        kubeproxy.NewGroupVersionResource(subRes.GVR),
 			ActionCode: 0,
@@ -150,12 +69,11 @@ func (mid *middlewareProducer[R]) onStart(c actor.ReceiverContext, subscribeEven
 
 	ctx := c.(actor.Context)
 
-	informerPid := actor.NewPID(c.Self().Address, c.Self().Id+"/InformerProxy")
+	informerPid := actor.NewPID(c.Self().Address, informerClient)
 	_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
 
 	if !ok {
-		var err error
-		informerPid, err = ctx.SpawnNamed(informer.New(), "InformerProxy")
+		informerPid, err = ctx.ActorSystem().Root.SpawnNamed(informer.New(), informerClient)
 		if err != nil {
 			return fmt.Errorf("spawn informer-server proxy fail due to %v", err)
 		}
@@ -176,4 +94,56 @@ func (mid *middlewareProducer[R]) onStart(c actor.ReceiverContext, subscribeEven
 		return fmt.Errorf("subcribe event with error %s", ack.Message)
 	}
 	return nil
+}
+
+func NewDynamicClientMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
+	producer := &config{}
+	for _, opt := range opts {
+		opt(producer)
+	}
+
+	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
+		informerPid := actor.NewPID(c.Self().Address, informerClient)
+		_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
+		ctx := c.(actor.Context)
+
+		if !ok {
+			var err error
+			informerPid, err = ctx.SpawnNamed(informer.New(), informerClient)
+			if err != nil {
+				logrus.Errorf("spawn informer-server proxy fail due to %v", err)
+				return false
+			}
+		}
+
+		err := utils.InjectActor(c, utils.NewInjectorItem(producer.tagName, newDynamicInformer(informerPid)))
+		if err != nil {
+			logrus.Error(err)
+		}
+		return false
+	}
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
+}
+
+func GetPID(server string) *actor.PID {
+	return actor.NewPID(server, informerServer)
+}
+
+func NewServerMiddlewareProducer(kubeconfig *rest.Config, syncInterval time.Duration) actor.ReceiverMiddleware {
+	serverProps := informer_server.New(kubeconfig, informer_server.WithSyncInterval(syncInterval))
+	started := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) bool {
+		informerPid := actor.NewPID(rCtx.Self().Address, informerServer)
+		_, ok := rCtx.ActorSystem().ProcessRegistry.Get(informerPid)
+		if ok {
+			return false
+		}
+
+		_, err := rCtx.ActorSystem().Root.SpawnNamed(serverProps, informerServer)
+		if err != nil {
+			logrus.Fatalf("can not initial informer server due to %v", err)
+		}
+		return false
+	}
+
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
 }
