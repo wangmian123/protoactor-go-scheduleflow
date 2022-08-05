@@ -1,6 +1,7 @@
 package recorder
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/processor"
+	"github.com/asynkron/protoactor-go/scheduler"
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	"k8s.io/api/core/v1"
@@ -17,21 +19,38 @@ import (
 const (
 	logPrefix        = fundamental.LogPrefix + "[Subscriber]"
 	subscribeTimeout = 60 * time.Second
+
+	renewInterval = 30 * time.Second
 )
 
-type subscribeEventRecorder struct {
-	events fundamental.SubscribeEventMap
+type renewSubscribedResource struct {
 }
 
-func New(events fundamental.SubscribeEventMap) processor.ActorProcessorWithInitial {
-	return &subscribeEventRecorder{events: events}
+type subscribeEventRecorder struct {
+	goroutine context.Context
+	events    fundamental.SubscribeEventMap
+}
+
+func New(events fundamental.SubscribeEventMap, rootCtx context.Context) processor.ActorProcessorWithInitial {
+	return &subscribeEventRecorder{events: events, goroutine: rootCtx}
 }
 
 func (sub *subscribeEventRecorder) Name() string {
 	return "Subscriber"
 }
 
-func (sub *subscribeEventRecorder) Initial(_ actor.Context) error {
+func (sub *subscribeEventRecorder) Initial(ctx actor.Context) error {
+	logrus.Infof("%s starts renewing subscribed resource periodly, period: %s", logPrefix, renewInterval.String())
+	cancel := scheduler.NewTimerScheduler(ctx).SendRepeatedly(renewInterval, renewInterval, ctx.Self(), &renewSubscribedResource{})
+	go func() {
+		for {
+			select {
+			case <-sub.goroutine.Done():
+				cancel()
+				return
+			}
+		}
+	}()
 	return nil
 }
 
@@ -43,12 +62,48 @@ func (sub *subscribeEventRecorder) CanProcess(msg interface{}) bool {
 		return true
 	case *fundamental.SubscribeResourceFrom[unstructured.Unstructured]:
 		return true
+	case *renewSubscribedResource:
+		return true
 	default:
 		return false
 	}
 }
 
 func (sub *subscribeEventRecorder) Process(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error) {
+	switch env.Message.(type) {
+	case *fundamental.SubscribeResourceFrom[v1.Pod], *fundamental.SubscribeResourceFrom[v1.Node],
+		*fundamental.SubscribeResourceFrom[unstructured.Unstructured]:
+		return sub.receiveSubscribeEvents(ctx, env)
+	default:
+		envelop := &actor.MessageEnvelope{
+			Message: env.Message,
+			Sender:  env.Sender,
+		}
+		go func(envelop *actor.MessageEnvelope) {
+			resp, err := sub.asyncProcess(ctx, env)
+			if err != nil {
+				logrus.Errorf("%s processes with error %v", logPrefix, err)
+				return
+			}
+
+			if resp != nil {
+				ctx.Send(envelop.Sender, resp)
+			}
+		}(envelop)
+		return nil, nil
+	}
+}
+
+func (sub *subscribeEventRecorder) asyncProcess(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error) {
+	switch m := env.Message.(type) {
+	case *renewSubscribedResource:
+		return nil, sub.renewSubscribedResource(ctx)
+	default:
+		return nil, fmt.Errorf("%s can not process message type %T", logPrefix, m)
+	}
+}
+
+func (sub *subscribeEventRecorder) receiveSubscribeEvents(ctx actor.Context, env *actor.MessageEnvelope) (*fundamental.SubscribeRespond, error) {
 	var err error
 	if env.Sender == nil {
 		return nil, fmt.Errorf("%s can not recorder event with no sender pid", logPrefix)
@@ -56,28 +111,31 @@ func (sub *subscribeEventRecorder) Process(ctx actor.Context, env *actor.Message
 
 	switch m := env.Message.(type) {
 	case *fundamental.SubscribeResourceFrom[v1.Pod]:
-		err = recordSubscribeEvent[v1.Pod](sub, ctx, env.Sender, m)
+		err = receiveSubscribeEvents[v1.Pod](sub, ctx, env.Sender, m)
 	case *fundamental.SubscribeResourceFrom[v1.Node]:
-		err = recordSubscribeEvent[v1.Node](sub, ctx, env.Sender, m)
+		err = receiveSubscribeEvents[v1.Node](sub, ctx, env.Sender, m)
 	case *fundamental.SubscribeResourceFrom[unstructured.Unstructured]:
-		err = recordSubscribeEvent[unstructured.Unstructured](sub, ctx, env.Sender, m)
+		err = receiveSubscribeEvents[unstructured.Unstructured](sub, ctx, env.Sender, m)
 	}
 
 	if err != nil {
 		logrus.Errorf("%s %v", logPrefix, err)
-		return fundamental.SubscribeRespond{
+		return &fundamental.SubscribeRespond{
 			Code:    fundamental.Fail,
 			Message: err,
 		}, nil
 	}
 
-	return nil, nil
+	return &fundamental.SubscribeRespond{
+		Code:    fundamental.Success,
+		Message: nil,
+	}, nil
 }
 
-func recordSubscribeEvent[R any](recorder *subscribeEventRecorder, ctx actor.Context, sender *actor.PID,
+func receiveSubscribeEvents[R any](recorder *subscribeEventRecorder, ctx actor.Context, sender *actor.PID,
 	msg *fundamental.SubscribeResourceFrom[R]) error {
 	logrus.Infof("%s recordes events %s from %s", logPrefix, msg.Resource.GVR.String(), msg.Source.String())
-	subscribeEventKeys, err := fundamental.FormSubscriberKeys(msg.Source, msg.Resource.GVR, msg.Resource.ActionCode)
+	subscribeEventKeys, err := fundamental.FormSubscribeEventKeys(msg.Source, msg.Resource.GVR, msg.Resource.ActionCode)
 	if err != nil {
 		return err
 	}
@@ -104,11 +162,11 @@ func recordSubscribeEvent[R any](recorder *subscribeEventRecorder, ctx actor.Con
 }
 
 func (sub *subscribeEventRecorder) subscribeResource(ctx actor.Context, sourcePID, respondTo *actor.PID,
-	resource kubeproxy.SubscribeResource) {
-	// subscribe resource
+	resource *kubeproxy.SubscribeResource) {
+	// subscribe resource with all action type for cache resource.
 	resource.ActionCode = 0
 	subscribeFor := &kubeproxy.SubscribeResourceFor{
-		Resource:   &resource,
+		Resource:   resource,
 		Subscriber: ctx.Self(),
 	}
 	future := ctx.RequestFuture(sourcePID, subscribeFor, subscribeTimeout)
@@ -124,8 +182,7 @@ func (sub *subscribeEventRecorder) subscribeResource(ctx actor.Context, sourcePI
 
 	subRespond, ok := result.(*kubeproxy.SubscribeConfirm)
 	if !ok {
-		err = fmt.Errorf("%s subscrbe respond excepeted *kubeproxy.SubscribeConfirm,"+
-			" but get %T", logPrefix, subRespond)
+		err = fmt.Errorf("%s subscrbe respond excepeted *kubeproxy.SubscribeConfirm, but get %T", logPrefix, subRespond)
 		ctx.Send(respondTo, &fundamental.SubscribeRespond{
 			Code:    fundamental.Fail,
 			Message: err,
@@ -142,34 +199,100 @@ func (sub *subscribeEventRecorder) subscribeResource(ctx actor.Context, sourcePI
 		respondTo.String(), sourcePID.String())
 }
 
+func (sub *subscribeEventRecorder) renewSubscribedResource(ctx actor.Context) error {
+	subscribeResources := make(map[string]map[string]struct{}, len(sub.events.Items()))
+	stringToPID := make(map[string]*actor.PID)
+	stringToGVR := make(map[string]*kubeproxy.GroupVersionResource)
+	for key := range sub.events.Items() {
+		eventInfo, err := fundamental.FormEvenKeyStruct(key)
+		if err != nil {
+			return err
+		}
+
+		stringToPID[eventInfo.PID.String()] = eventInfo.PID
+		gvrMap, ok := subscribeResources[eventInfo.PID.String()]
+		if !ok {
+			gvrMap = make(map[string]struct{})
+			subscribeResources[eventInfo.PID.String()] = gvrMap
+		}
+		gvrMap[eventInfo.GroupVersionResource.String()] = struct{}{}
+		stringToGVR[eventInfo.GroupVersionResource.String()] = eventInfo.GroupVersionResource
+	}
+
+	if len(subscribeResources) == 0 {
+		return nil
+	}
+
+	for pidStr, gvrMap := range subscribeResources {
+		pid, ok := stringToPID[pidStr]
+		if !ok {
+			return fmt.Errorf("can not find pid in stringToPID")
+		}
+		if len(gvrMap) == 0 {
+			continue
+		}
+		renewResource := &kubeproxy.RenewSubscribeResourceGroupFor{
+			Resources:  make([]*kubeproxy.RenewSubscribeResource, 0, len(gvrMap)),
+			Subscriber: ctx.Self(),
+		}
+
+		for gvrStr := range gvrMap {
+			gvr, ok := stringToGVR[gvrStr]
+			if !ok {
+				return fmt.Errorf("can not find gvr in stringToGVR")
+			}
+			renewResource.Resources = append(renewResource.Resources, &kubeproxy.RenewSubscribeResource{
+				GVR:        gvr,
+				ActionCode: 0,
+			})
+		}
+
+		err := sub.renewResourceFrom(ctx, pid, renewResource)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (sub *subscribeEventRecorder) renewResourceFrom(ctx actor.Context, sourcePID *actor.PID,
+	renew *kubeproxy.RenewSubscribeResourceGroupFor) error {
+	result, err := ctx.RequestFuture(sourcePID, renew, subscribeTimeout).Result()
+	if err != nil {
+		return err
+	}
+	resp, ok := result.(*kubeproxy.SubscribeGroupConfirm)
+	if !ok {
+		return fmt.Errorf("receive respond type error except *kubeproxy.SubscribeGroupConfirm, but get %T", result)
+	}
+	if len(resp.Confirms) != len(renew.Resources) {
+		return fmt.Errorf("confirm length is not equal to subscribed resource")
+	}
+	return nil
+}
+
 func recordSubscribeEvents[R any](msg *fundamental.SubscribeResourceFrom[R], sender *actor.PID,
 	events fundamental.SubscribeEventMap) error {
 	cb := fundamental.NewCallback[R](msg)
-	subscribeEventKeys, err := fundamental.FormSubscriberKeys(msg.Source, msg.Resource.GVR, msg.Resource.ActionCode)
-	if err != nil {
-		return err
-	}
-	subscriberInfoKeys, err := fundamental.FormSubscriberKeys(sender, msg.Resource.GVR, msg.Resource.ActionCode)
+	eventKeys, err := fundamental.FormSubscribeEventKeys(msg.Source, msg.Resource.GVR, msg.Resource.ActionCode)
 	if err != nil {
 		return err
 	}
 
-	subsCallback := make(map[string]fundamental.Callbacker, len(subscribeEventKeys))
-	for _, key := range subscriberInfoKeys {
-		subsCallback[key] = cb
+	subscriberKey, err := fundamental.FormPIDGVRKeyString(sender, msg.Resource.GVR)
+	if err != nil {
+		return err
 	}
-
-	for _, sKey := range subscribeEventKeys {
-		sInfo, ok := events.Get(sKey)
+	for _, eventKey := range eventKeys {
+		subscribeInfo, ok := events.Get(eventKey)
 		if ok {
-			sInfo.MSet(subsCallback)
+			subscribeInfo.BatchSet(subscriberKey, cb)
 			continue
 		}
-
-		subsInfoMap := fundamental.SubscriberInformationMap{ConcurrentMap: cmap.New[fundamental.Callbacker]()}
-		subsInfoMap.MSet(subsCallback)
-		events.Set(sKey, &subsInfoMap)
+		subscribeInfo = &fundamental.SubscriberInformationMap{ConcurrentMap: cmap.New[[]fundamental.Callbacker]()}
+		subscribeInfo.BatchSet(subscriberKey, cb)
+		events.Set(eventKey, subscribeInfo)
+		logrus.Infof("%s event key %s has add", logPrefix, eventKey)
 	}
-
 	return nil
 }

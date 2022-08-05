@@ -1,7 +1,6 @@
 package fundamental
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
@@ -9,29 +8,45 @@ import (
 )
 
 // SubscriberInformationMap records recorder pid, gvr and action type
-// map[`recorder.PID + SubscribeEventMap.GVR + SubscribeEventMap.SubscribeAction`]callback
+// map[`subscriber.PID + subscribe.GVR`] Callbacker list
 type SubscriberInformationMap struct {
-	cmap.ConcurrentMap[Callbacker]
+	cmap.ConcurrentMap[[]Callbacker]
+}
+
+func (sub *SubscriberInformationMap) BatchSet(key string, callers ...Callbacker) {
+	if len(callers) == 0 {
+		return
+	}
+
+	stored, ok := sub.Get(key)
+	if !ok {
+		sub.Set(key, callers)
+		return
+	}
+	stored = append(stored, callers...)
+	sub.Set(key, stored)
 }
 
 // SubscribeEventMap records target pid where subscribed event from.
-// map[`recorder.PID + SubscribeEventMap.GVR + SubscribeEventMap.SubscribeAction`]
+// map[`resourceSource.PID + subscribe.GVR + subscribe.SubscribeAction`]*SubscriberInformationMap
 type SubscribeEventMap struct {
 	cmap.ConcurrentMap[*SubscriberInformationMap]
 }
 
+// Callbacker records subscribers' handlers and callbacks when
+// receives relative resource changing actions.
 type Callbacker interface {
-	ReceiveCreateEvent(event kubeproxy.CreateEvent) error
-	ReceiveUpdateEvent(event kubeproxy.UpdateEvent) error
-	ReceiveDeleteEvent(event kubeproxy.DeleteEvent) error
+	ReceiveCreateEvent(event *kubeproxy.CreateEvent) error
+	ReceiveUpdateEvent(event *kubeproxy.UpdateEvent) error
+	ReceiveDeleteEvent(event *kubeproxy.DeleteEvent) error
 }
 
 type callback[R any] struct {
-	gvr     kubeproxy.GroupVersionResource
+	gvr     *kubeproxy.GroupVersionResource
 	handler ResourceEventHandlerFuncs[R]
 }
 
-func (s *callback[R]) ReceiveCreateEvent(event kubeproxy.CreateEvent) error {
+func (s *callback[R]) ReceiveCreateEvent(event *kubeproxy.CreateEvent) error {
 	if event.GetGVR().String() != s.gvr.String() {
 		return fmt.Errorf("receive invalid gvr type")
 	}
@@ -40,11 +55,11 @@ func (s *callback[R]) ReceiveCreateEvent(event kubeproxy.CreateEvent) error {
 	if err != nil {
 		return err
 	}
-	s.handler.AddFunc(res)
+	go s.handler.AddFunc(res)
 	return nil
 }
 
-func (s *callback[R]) ReceiveUpdateEvent(event kubeproxy.UpdateEvent) error {
+func (s *callback[R]) ReceiveUpdateEvent(event *kubeproxy.UpdateEvent) error {
 	if event.GetGVR().String() != s.gvr.String() {
 		return fmt.Errorf("receive invalid gvr type")
 	}
@@ -57,11 +72,11 @@ func (s *callback[R]) ReceiveUpdateEvent(event kubeproxy.UpdateEvent) error {
 	if err != nil {
 		return err
 	}
-	s.handler.UpdateFunc(oldOne, newOne)
+	go s.handler.UpdateFunc(oldOne, newOne)
 	return nil
 }
 
-func (s *callback[R]) ReceiveDeleteEvent(event kubeproxy.DeleteEvent) error {
+func (s *callback[R]) ReceiveDeleteEvent(event *kubeproxy.DeleteEvent) error {
 	if event.GetGVR().String() != s.gvr.String() {
 		return fmt.Errorf("receive invalid gvr type")
 	}
@@ -70,12 +85,12 @@ func (s *callback[R]) ReceiveDeleteEvent(event kubeproxy.DeleteEvent) error {
 	if err != nil {
 		return err
 	}
-	s.handler.DeleteFunc(res)
+	go s.handler.DeleteFunc(res)
 	return nil
 }
 
 func (s *callback[R]) unmarshal(data []byte) (R, error) {
-	if s.handler.Unmarshal != nil {
+	if s.handler != nil {
 		return s.handler.Unmarshal(data)
 	}
 	var res R
@@ -88,7 +103,7 @@ func (s *callback[R]) unmarshal(data []byte) (R, error) {
 
 func NewCallback[R any](info *SubscribeResourceFrom[R]) *callback[R] {
 	return &callback[R]{
-		gvr:     *info.Resource.GVR,
+		gvr:     info.Resource.GVR,
 		handler: info.Handler,
 	}
 }

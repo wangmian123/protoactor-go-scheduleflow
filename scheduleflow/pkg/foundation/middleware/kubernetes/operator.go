@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/apimachinery/pkg/watch"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -113,7 +115,6 @@ func (r *OperateResource[R]) Delete(ctx context.Context, name string,
 	_, err := r.requestUntilTimeout(ctx, deleteInfo)
 	return err
 }
-
 func (r *OperateResource[R]) Get(ctx context.Context, name string,
 	options metav1.GetOptions, subresources ...string) (*R, error) {
 	getInfo := &kubeproxy.Get{
@@ -128,8 +129,48 @@ func (r *OperateResource[R]) Get(ctx context.Context, name string,
 	return r.requestUntilTimeout(ctx, getInfo)
 }
 
-func (r *OperateResource[R]) List(ctx context.Context, opts metav1.ListOptions,
-) (*unstructured.UnstructuredList, error) {
+func (r *OperateResource[R]) BlockGet(ctx context.Context, name string,
+	options kubeproxy.BlockGetOptions, subresources ...string) (*R, error) {
+	getInfo := &kubeproxy.BlockGet{
+		Metadata: &metav1.ObjectMeta{
+			Namespace: r.namespace,
+			Name:      name,
+		},
+		GVR:          kubeproxy.NewGroupVersionResource(*r.gvr),
+		GetOptions:   &options,
+		SubResources: subresources,
+	}
+	return r.requestUntilTimeout(ctx, getInfo)
+}
+
+func (r *OperateResource[R]) UnlockResource(_ context.Context, name string) error {
+	unlockInfo := &kubeproxy.UnlockResource{
+		Metadata: &metav1.ObjectMeta{
+			Namespace: r.namespace,
+			Name:      name,
+		},
+		GVR: kubeproxy.NewGroupVersionResource(*r.gvr),
+	}
+
+	future := r.ctx.RequestFuture(r.target, unlockInfo, r.timeout)
+	result, err := future.Result()
+	if err != nil {
+		return err
+	}
+
+	resp, ok := result.(*kubeproxy.Response)
+	if !ok {
+		return fmt.Errorf("expected type *kubeproxy.Response, but get %T", result)
+	}
+
+	if resp.Error != nil {
+		return resp.Error
+	}
+
+	return nil
+}
+
+func (r *OperateResource[R]) List(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
 	listInfo := &kubeproxy.List{
 		Metadata: &metav1.ObjectMeta{
 			Namespace: r.namespace,
@@ -142,8 +183,7 @@ func (r *OperateResource[R]) List(ctx context.Context, opts metav1.ListOptions,
 	return requestUntilTimeout[unstructured.UnstructuredList](ctx, future)
 }
 
-func (r *OperateResource[R]) ListSlice(ctx context.Context, opts metav1.ListOptions,
-) ([]R, error) {
+func (r *OperateResource[R]) ListSlice(ctx context.Context, opts metav1.ListOptions) ([]*R, error) {
 	list, err := r.List(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -153,7 +193,7 @@ func (r *OperateResource[R]) ListSlice(ctx context.Context, opts metav1.ListOpti
 		return nil, nil
 	}
 
-	ret := make([]R, 0, len(list.Items))
+	ret := make([]*R, 0, len(list.Items))
 	for _, item := range list.Items {
 		raw, err := item.MarshalJSON()
 		if err != nil {
@@ -166,13 +206,13 @@ func (r *OperateResource[R]) ListSlice(ctx context.Context, opts metav1.ListOpti
 			return nil, err
 		}
 
-		ret = append(ret, resourceItem)
+		ret = append(ret, &resourceItem)
 	}
 	return ret, nil
 }
 
-func (r *OperateResource[R]) Patch(ctx context.Context, name string, pt types.PatchType,
-	data []byte, options metav1.PatchOptions, subresources ...string) (*R, error) {
+func (r *OperateResource[R]) Patch(ctx context.Context, name string, pt types.PatchType, data []byte,
+	options metav1.PatchOptions, subresources ...string) (*R, error) {
 	code, ok := kubeproxy.PatchTypeToCode[pt]
 	if !ok {
 		return nil, fmt.Errorf("wrong patch type %s", pt)
@@ -191,13 +231,18 @@ func (r *OperateResource[R]) Patch(ctx context.Context, name string, pt types.Pa
 	return r.requestUntilTimeout(ctx, patchInfo)
 }
 
+// Watch watches resource.
+// TODO: add a watch
+func (r *OperateResource[R]) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+	return nil, nil
+}
+
 func (r *OperateResource[R]) Namespace(namespace string) ResourceOperator[R] {
 	r.namespace = namespace
 	return r
 }
 
-func (r *OperateResource[R]) requestUntilTimeout(ctx context.Context, message interface{},
-) (*R, error) {
+func (r *OperateResource[R]) requestUntilTimeout(ctx context.Context, message interface{}) (*R, error) {
 	future := r.ctx.RequestFuture(r.target, message, r.timeout)
 	return requestUntilTimeout[R](ctx, future)
 }
@@ -214,7 +259,8 @@ func requestUntilTimeout[R any](ctx context.Context, future *actor.Future) (*R, 
 	}
 
 	if resp.Error != nil {
-		return nil, resp.Error
+		return nil, fmt.Errorf("resource %s named %s/%s occurs error %v", resp.GVR.String(),
+			resp.Metadata.GetNamespace(), resp.Metadata.GetName(), resp.Error)
 	}
 
 	if resp.Resource == nil {

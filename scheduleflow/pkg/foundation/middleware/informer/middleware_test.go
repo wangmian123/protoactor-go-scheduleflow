@@ -20,6 +20,6 @@ func (po *podConstraint) DeepCopy(pod v1.Pod) v1.Pod {
 
 func TestNewK8sResourceSubscriber(t *testing.T) {
 	podCons := &podConstraint{}
-	a := newK8sResourceSubscribeWithStore[v1.Pod](podCons)
+	a := newOperableResourceStore[v1.Pod](podCons, 0)
 	fmt.Print(a)
 }

@@ -1,6 +1,8 @@
 package informer
 
 import (
+	"time"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
@@ -10,7 +12,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var _ fundamental.ResourceEventHandlerFuncs[v1.Pod] = &k8sResourceSubscriberWithStore[v1.Pod]{}
+type (
+	UnstructuredOperableStore = KubernetesOperableResourceStore[unstructured.Unstructured]
+	UnstructuredStore         = KubernetesResourceStore[unstructured.Unstructured]
+)
 
 // DynamicEventHandler recalls when resource add, delete or update.
 type DynamicEventHandler interface {
@@ -21,11 +26,12 @@ type DynamicEventHandler interface {
 
 // DynamicInformer set or get resource informer.
 type DynamicInformer interface {
-	SetResourceHandler(ctx actor.Context, subscribe ...DynamicSubscribe) error
+	SetResourceHandler(subscribe ...DynamicSubscribe) ([]KubernetesOperableResourceStore[unstructured.Unstructured], error)
 	GetResourceStore(pid *actor.PID, gvr schema.GroupVersionResource) (KubernetesResourceStore[unstructured.Unstructured], bool)
 }
 
-type KubernetesResourceSubscriber[R any] interface {
+type KubernetesOperableResourceStore[R any] interface {
+	Set(R)
 	SetResourceHandler(handler fundamental.ResourceEventHandlerFuncs[R])
 	KubernetesResourceStore[R]
 }
@@ -63,6 +69,12 @@ func WithRateLimitation(rate int64) Option {
 	}
 }
 
+func WithUpdateInterval(interval time.Duration) Option {
+	return func(producer *config) {
+		producer.updateInterval = interval
+	}
+}
+
 type config struct {
 	SubscribeOption
 	storeConfig
@@ -72,9 +84,11 @@ type config struct {
 type storeConfig struct {
 	handler         DynamicEventHandler
 	storeConstraint StoreConstraint[unstructured.Unstructured]
+
+	updateInterval time.Duration
 }
 
-// SubscribeOption
+// SubscribeOption subscription options
 type SubscribeOption struct {
 	RateLimitation int64
 }
@@ -85,14 +99,14 @@ func convertSubscribeOption(opt SubscribeOption) *kubeproxy.SubscribeOption {
 	}
 }
 
-//SubscribeResource
+// SubscribeResource defines subscribe resource.
 type SubscribeResource struct {
 	GVR    schema.GroupVersionResource
 	Option SubscribeOption
 }
 
-func convertSubscribeResource(sub SubscribeResource) kubeproxy.SubscribeResource {
-	return kubeproxy.SubscribeResource{
+func convertSubscribeResource(sub SubscribeResource) *kubeproxy.SubscribeResource {
+	return &kubeproxy.SubscribeResource{
 		GVR:        kubeproxy.NewGroupVersionResource(sub.GVR),
 		ActionCode: 0,
 		Option:     convertSubscribeOption(sub.Option),
@@ -107,7 +121,7 @@ func FormResourceKey(obj metav1.ObjectMeta) string {
 	return obj.Namespace + "/" + obj.Namespace
 }
 
-//podStoreConstraint
+// podStoreConstraint
 type podStoreConstraint struct {
 }
 
@@ -119,7 +133,7 @@ func (*podStoreConstraint) DeepCopy(pod v1.Pod) v1.Pod {
 	return *DeepCopy[*v1.Pod](&pod)
 }
 
-//nodeStoreConstraint
+// nodeStoreConstraint
 type nodeStoreConstraint struct {
 }
 
@@ -131,6 +145,7 @@ func (*nodeStoreConstraint) DeepCopy(node v1.Node) v1.Node {
 	return *DeepCopy[*v1.Node](&node)
 }
 
+// defaultConstraint
 type defaultConstraint struct {
 }
 
@@ -140,4 +155,54 @@ func (d *defaultConstraint) FormKey(res unstructured.Unstructured) string {
 
 func (d *defaultConstraint) DeepCopy(res unstructured.Unstructured) unstructured.Unstructured {
 	return *res.DeepCopy()
+}
+
+type ResourceChanging[R any] struct {
+	NewResource *R
+	OldResource *R
+}
+
+type resourceChangingStoreConstraint[R any] struct {
+	constraint StoreConstraint[R]
+}
+
+func newChangeConstraint[R any](constraint StoreConstraint[R]) *resourceChangingStoreConstraint[R] {
+	return &resourceChangingStoreConstraint[R]{
+		constraint: constraint,
+	}
+}
+
+func (c *resourceChangingStoreConstraint[R]) FormStoreKey(res *ResourceChanging[R]) string {
+	if res.NewResource == nil {
+		return ""
+	}
+	return c.constraint.FormKey(*res.NewResource)
+}
+
+func (c *resourceChangingStoreConstraint[R]) Less(*ResourceChanging[R], *ResourceChanging[R]) bool {
+	return false
+}
+
+type HandlerFunc struct {
+	Creating func(resource unstructured.Unstructured)
+	Deleting func(resource unstructured.Unstructured)
+	Updating func(oldResource, newResource unstructured.Unstructured)
+}
+
+func (h *HandlerFunc) AddFunc(resource unstructured.Unstructured) {
+	if h.Creating != nil {
+		h.Creating(resource)
+	}
+}
+
+func (h *HandlerFunc) DeleteFunc(resource unstructured.Unstructured) {
+	if h.Deleting != nil {
+		h.Deleting(resource)
+	}
+}
+
+func (h *HandlerFunc) UpdateFunc(oldResource, newResource unstructured.Unstructured) {
+	if h.Updating != nil {
+		h.Updating(oldResource, newResource)
+	}
 }

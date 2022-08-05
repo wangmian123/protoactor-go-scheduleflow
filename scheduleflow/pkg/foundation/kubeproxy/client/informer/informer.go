@@ -1,6 +1,8 @@
 package informer
 
 import (
+	"context"
+
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/dispacher"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/recorder"
 	cmap "github.com/orcaman/concurrent-map"
@@ -21,18 +23,17 @@ type informer struct {
 }
 
 func New() *actor.Props {
-
 	eventMap := fundamental.SubscribeEventMap{ConcurrentMap: cmap.New[*fundamental.SubscriberInformationMap]()}
 	producer := func() actor.Actor {
 		return &informer{
 			eventMap: eventMap,
 		}
 	}
-
+	ctx, cancel := context.WithCancel(context.Background())
 	return actor.PropsFromProducer(producer,
 		actor.WithReceiverMiddleware(
-			actorinfo.NewMiddlewareProducer(),
-			processor.NewMiddlewareProducer(recorder.New(eventMap), dispacher.New(eventMap)),
+			actorinfo.NewMiddlewareProducer(actorinfo.WithGoroutineContext(ctx, cancel)),
+			processor.NewMiddlewareProducer(recorder.New(eventMap, ctx), dispacher.New(eventMap)),
 		),
 	)
 }
@@ -40,6 +41,6 @@ func New() *actor.Props {
 func (inf *informer) Receive(ctx actor.Context) {
 	switch ctx.Message().(type) {
 	case *actor.Started:
-		logrus.Infof("[%s] start", inf.Self().Id)
+		logrus.Infof("=======[%s] start=======", inf.Self().Id)
 	}
 }

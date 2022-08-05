@@ -3,9 +3,10 @@ syntax = "proto3";
 package kubeproxy;
 
 import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
-import "github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy/informer.proto";
+import "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy/informer.proto";
+import "google/protobuf/duration.proto";
 
-option go_package = "kubeproxy";
+option go_package = "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy";
 
 message Response {
   k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
@@ -16,6 +17,23 @@ message Response {
 
 message Error {
   string Message = 1;
+}
+
+message BlockGetOptions {
+  string ResourceVersion = 1;
+  google.protobuf.Duration BlockTimeout = 2;
+}
+
+message BlockGet {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  BlockGetOptions GetOptions = 3;
+  repeated string SubResources = 4;
+}
+
+message UnlockResource {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
 }
 
 message Get {

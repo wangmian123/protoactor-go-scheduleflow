@@ -25,12 +25,12 @@ const (
 
 // middlewareProducer
 type middlewareProducer[R any] struct {
-	store     *k8sResourceSubscriberWithStore[R]
+	store     *k8sOperableResourceStore[R]
 	injectTag string
 }
 
 func NewClientMiddlewareProducer[R any](constraint StoreConstraint[R], tagName string) *middlewareProducer[R] {
-	store := newK8sResourceSubscribeWithStore(constraint)
+	store := newOperableResourceStore(constraint, 0)
 	return &middlewareProducer[R]{
 		store:     store,
 		injectTag: tagName,
@@ -39,10 +39,10 @@ func NewClientMiddlewareProducer[R any](constraint StoreConstraint[R], tagName s
 
 func (mid *middlewareProducer[R]) ProduceSubscribeMiddleware(target *actor.PID, subRes SubscribeResource,
 	handler fundamental.ResourceEventHandlerFuncs[R]) actor.ReceiverMiddleware {
-	mid.store.handler = handler
+	mid.store.handlers = append(mid.store.handlers, handler)
 	subscribeEvent := fundamental.SubscribeResourceFrom[R]{
 		Source: GetPID(target.GetAddress()),
-		Resource: kubeproxy.SubscribeResource{
+		Resource: &kubeproxy.SubscribeResource{
 			GVR:        kubeproxy.NewGroupVersionResource(subRes.GVR),
 			ActionCode: 0,
 			Option:     &kubeproxy.SubscribeOption{RateLimitation: subRes.Option.RateLimitation},
@@ -103,20 +103,19 @@ func NewDynamicClientMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware
 	}
 
 	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
-		informerPid := actor.NewPID(c.Self().Address, informerClient)
+		informerPid := actor.NewPID(c.Self().GetAddress(), informerClient)
 		_, ok := c.ActorSystem().ProcessRegistry.Get(informerPid)
-		ctx := c.(actor.Context)
 
 		if !ok {
 			var err error
-			informerPid, err = ctx.SpawnNamed(informer.New(), informerClient)
+			informerPid, err = c.ActorSystem().Root.SpawnNamed(informer.New(), informerClient)
 			if err != nil {
 				logrus.Errorf("spawn informer-server proxy fail due to %v", err)
 				return false
 			}
 		}
 
-		err := utils.InjectActor(c, utils.NewInjectorItem(producer.tagName, newDynamicInformer(informerPid)))
+		err := utils.InjectActor(c, utils.NewInjectorItem(producer.tagName, NewDynamicInformer(c.ActorSystem(), informerPid)))
 		if err != nil {
 			logrus.Error(err)
 		}
@@ -127,6 +126,10 @@ func NewDynamicClientMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware
 
 func GetPID(server string) *actor.PID {
 	return actor.NewPID(server, informerServer)
+}
+
+func GetLocalClient(sys *actor.ActorSystem) *actor.PID {
+	return actor.NewPID(sys.Address(), informerClient)
 }
 
 func NewServerMiddlewareProducer(kubeconfig *rest.Config, syncInterval time.Duration) actor.ReceiverMiddleware {

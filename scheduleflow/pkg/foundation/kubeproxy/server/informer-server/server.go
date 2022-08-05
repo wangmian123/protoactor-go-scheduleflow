@@ -45,18 +45,16 @@ type informerServer struct {
 
 	Manager processor.Manager `inject:""`
 
-	syncInterval time.Duration
-	k8sConfig    *rest.Config
-
-	processorCtx context.Context
 	stop         context.CancelFunc
+	k8sConfig    *rest.Config
+	syncInterval time.Duration
+	processorCtx context.Context
 }
 
 func New(k8sConfig *rest.Config, opts ...Option) *actor.Props {
 	for _, opt := range opts {
 		opt(&defaultConfig)
 	}
-
 	producer := func() actor.Actor {
 		return &informerServer{
 			syncInterval: defaultConfig.syncInterval,
@@ -65,7 +63,6 @@ func New(k8sConfig *rest.Config, opts ...Option) *actor.Props {
 	}
 
 	rootCtx, cancel := context.WithCancel(context.Background())
-
 	props := actor.PropsFromProducer(producer,
 		actor.WithReceiverMiddleware(
 			actorinfo.NewMiddlewareProducer(actorinfo.WithGoroutineContext(rootCtx, cancel)),

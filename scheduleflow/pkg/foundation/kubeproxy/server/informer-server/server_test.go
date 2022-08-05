@@ -68,7 +68,7 @@ func TestInformerServer_Receive(t *testing.T) {
 	//pod := schema.GroupVersionResource{
 	//	Group:    "",
 	//	Version:  "v1",
-	//	Resource: "pods",
+	//	NewResource: "pods",
 	//}
 
 	nodes := schema.GroupVersionResource{
@@ -80,7 +80,7 @@ func TestInformerServer_Receive(t *testing.T) {
 	//cluster := schema.GroupVersionResource{
 	//	Group:    "multicluster.scheduleflow.io",
 	//	Version:  "v1alpha1",
-	//	Resource: "clusterproxies",
+	//	NewResource: "clusterproxies",
 	//}
 
 	system := actor.NewActorSystem()

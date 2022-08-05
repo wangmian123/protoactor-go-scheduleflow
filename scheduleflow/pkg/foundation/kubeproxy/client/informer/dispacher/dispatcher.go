@@ -25,7 +25,7 @@ func init() {
 type delayedFlushCreateEvent struct {
 	sourcePID  *actor.PID
 	subscriber *actor.PID
-	resource   kubeproxy.SubscribeResource
+	resource   *kubeproxy.SubscribeResource
 }
 
 const (
@@ -89,7 +89,7 @@ func (dis *dispatcher) Process(ctx actor.Context, env *actor.MessageEnvelope) (i
 func (dis *dispatcher) onCreateEvent(sourcePID *actor.PID, msg *kubeproxy.CreateEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_CREATE)
 	if err != nil {
-		logrus.Error(err)
+		logrus.Warning(err)
 		return
 	}
 
@@ -112,17 +112,20 @@ func (dis *dispatcher) broadcastCreateEvent(msg *kubeproxy.CreateEvent, subscrib
 	for name := range subscribers.Items() {
 		wg.Add(1)
 		go func(name string, event *kubeproxy.CreateEvent) {
-			sub, ok := subscribers.Get(name)
+			subs, ok := subscribers.Get(name)
 			if !ok {
 				logrus.Debugf("%s subscriber %s has been deleted", logPrefix, name)
 				return
 			}
 
-			err := sub.ReceiveCreateEvent(*event)
-			if err != nil {
-				logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
-				return
+			for _, sub := range subs {
+				err := sub.ReceiveCreateEvent(event)
+				if err != nil {
+					logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
+					return
+				}
 			}
+
 			defer wg.Done()
 		}(name, msg.DeepCopy())
 	}
@@ -133,34 +136,35 @@ func (dis *dispatcher) flushCreateEvents(info *delayedFlushCreateEvent) {
 	key := formPidGvrKey(info.sourcePID, info.resource.GVR)
 	cache, ok := dis.eventCache.Get(key)
 	if !ok {
-		logrus.Errorf("%s can not get event cache", logPrefix)
+		logrus.Warningf("%s can not get event cache", logPrefix)
 		return
 	}
 
 	subscribers, err := dis.findEventSubscribers(info.sourcePID, info.resource.GVR, kubeproxy.SubscribeAction_CREATE)
 	if err != nil {
-		logrus.Error(err)
+		logrus.Warning(err)
 		return
 	}
 
-	keys, err := fundamental.FormSubscriberKeys(info.subscriber, info.resource.GVR,
-		kubeproxy.GenerateActionCode([]kubeproxy.SubscribeAction{kubeproxy.SubscribeAction_CREATE}))
-	if err != nil || len(keys) != 1 {
-		logrus.Errorf("%s get subscriber callbacker key error %v, keys length %d", logPrefix, err, len(keys))
+	key, err = fundamental.FormPIDGVRKeyString(info.subscriber, info.resource.GVR)
+	if err != nil {
+		logrus.Errorf("can not flushCreateEvents due to %v", err)
 		return
 	}
 
-	callback, ok := subscribers.Get(keys[0])
+	callbacks, ok := subscribers.Get(key)
 	if !ok {
-		logrus.Errorf("%s can not get callback %s", logPrefix, keys[0])
+		logrus.Errorf("%s can not get callback %s", logPrefix, key)
 		return
 	}
 
 	now := metav1.Now()
 	for _, res := range cache.Items() {
-		err = callback.ReceiveCreateEvent(kubeproxy.CreateEvent{Timestamp: &now, GVR: info.resource.GVR, RawResource: res})
-		if err != nil {
-			logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
+		for _, callback := range callbacks {
+			err = callback.ReceiveCreateEvent(&kubeproxy.CreateEvent{Timestamp: &now, GVR: info.resource.GVR, RawResource: res})
+			if err != nil {
+				logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
+			}
 		}
 	}
 }
@@ -168,7 +172,7 @@ func (dis *dispatcher) flushCreateEvents(info *delayedFlushCreateEvent) {
 func (dis *dispatcher) onDeleteEvent(sourcePID *actor.PID, msg *kubeproxy.DeleteEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_DELETE)
 	if err != nil {
-		logrus.Error(err)
+		logrus.Warning(err)
 		return
 	}
 
@@ -197,17 +201,20 @@ func (dis *dispatcher) broadcastDeleteEvent(msg *kubeproxy.DeleteEvent, subscrib
 	for name := range subscribers.Items() {
 		wg.Add(1)
 		go func(name string, event *kubeproxy.DeleteEvent) {
-			sub, ok := subscribers.Get(name)
+			subs, ok := subscribers.Get(name)
 			if !ok {
 				logrus.Debugf("%s subscriber %s has been deleted", logPrefix, name)
 				return
 			}
 
-			err := sub.ReceiveDeleteEvent(*event)
-			if err != nil {
-				logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
-				return
+			for _, sub := range subs {
+				err := sub.ReceiveDeleteEvent(event)
+				if err != nil {
+					logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
+					return
+				}
 			}
+
 			defer wg.Done()
 		}(name, msg.DeepCopy())
 	}
@@ -217,7 +224,7 @@ func (dis *dispatcher) broadcastDeleteEvent(msg *kubeproxy.DeleteEvent, subscrib
 func (dis *dispatcher) onUpdateEvent(sourcePID *actor.PID, msg *kubeproxy.UpdateEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_UPDATE)
 	if err != nil {
-		logrus.Error(err)
+		logrus.Warning(err)
 		return
 	}
 	dis.cacheUpdateEvent(sourcePID, msg)
@@ -244,16 +251,16 @@ func (dis *dispatcher) broadcastUpdateEvent(msg *kubeproxy.UpdateEvent, subscrib
 	for name := range subscribers.Items() {
 		wg.Add(1)
 		go func(name string, event *kubeproxy.UpdateEvent) {
-			sub, ok := subscribers.Get(name)
+			subs, ok := subscribers.Get(name)
 			if !ok {
-				logrus.Debugf("%s subscriber %s has been deleted", logPrefix, name)
 				return
 			}
-
-			err := sub.ReceiveUpdateEvent(*event)
-			if err != nil {
-				logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
-				return
+			for _, sub := range subs {
+				err := sub.ReceiveUpdateEvent(event)
+				if err != nil {
+					logrus.Errorf("%s dispacher message with error %v", logPrefix, err)
+					return
+				}
 			}
 			defer wg.Done()
 		}(name, msg.DeepCopy())
@@ -263,7 +270,7 @@ func (dis *dispatcher) broadcastUpdateEvent(msg *kubeproxy.UpdateEvent, subscrib
 
 func (dis *dispatcher) findEventSubscribers(sourcePID *actor.PID, gvr *kubeproxy.GroupVersionResource,
 	act kubeproxy.SubscribeAction) (*fundamental.SubscriberInformationMap, error) {
-	key, err := fundamental.FormKey(sourcePID, gvr, act)
+	key, err := fundamental.FormEventKeyString(sourcePID, gvr, act)
 	if err != nil {
 		return nil, fmt.Errorf("%s form key error %v", logPrefix, err)
 	}

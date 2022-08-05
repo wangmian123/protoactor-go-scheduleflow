@@ -56,7 +56,7 @@ func GetAPI(server string) *actor.PID {
 	return actor.NewPID(server, apiServer)
 }
 
-func NewAPIServerMiddlewareProducer(kubeconfig *rest.Config) actor.ReceiverMiddleware {
+func NewServerMiddlewareProducer(kubeconfig *rest.Config) actor.ReceiverMiddleware {
 	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
 		apiPID := actor.NewPID(c.Self().Address, apiServer)
 		_, ok := c.ActorSystem().ProcessRegistry.Get(apiPID)

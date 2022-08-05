@@ -15,11 +15,6 @@ func NewMiddlewareProducer(initializers ...ActorProcessorWithInitial) actor.Rece
 			logrus.Fatal(err)
 			return false
 		}
-		ctx := c.(actor.Context)
-		err = manager.Initial(ctx)
-		if err != nil {
-			logrus.Errorf("initial processor with error: %v", err)
-		}
 		return false
 	}
 
@@ -43,5 +38,5 @@ func NewMiddlewareProducer(initializers ...ActorProcessorWithInitial) actor.Rece
 	}
 
 	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(injectManager).
-		BuildOnStartedDefer(initialProcessor).BuildOnOther(managing).ProduceReceiverMiddleware()
+		BuildOnStartedDefer(initialProcessor).BuildOnOtherDefer(managing).ProduceReceiverMiddleware()
 }

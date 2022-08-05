@@ -1,24 +1,10 @@
 package processor
 
-import "github.com/asynkron/protoactor-go/actor"
+import (
+	"fmt"
 
-type ActorProcessor interface {
-	Name() string
-	CanProcess(msg interface{}) bool
-	Process(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error)
-}
-
-type ActorProcessorWithInitial interface {
-	ActorProcessor
-	Initial(ctx actor.Context) error
-}
-
-// Manager is interface which and
-type Manager interface {
-	ActorProcessorWithInitial
-	AddProcessor(processors ...ActorProcessor)
-	GetProcessor(name string) (ActorProcessor, bool)
-}
+	"github.com/asynkron/protoactor-go/actor"
+)
 
 // managerImplement
 type managerImplement struct {
@@ -84,9 +70,20 @@ func (m *managerImplement) Initial(ctx actor.Context) error {
 	return nil
 }
 
-func (m *managerImplement) AddProcessor(processors ...ActorProcessor) {
+func (m *managerImplement) AddProcessor(processors ...ActorProcessor) error {
 	for _, p := range processors {
+		_, ok := m.processors[p.Name()]
+		if ok {
+			return fmt.Errorf("can not add a process named %s ,due to process existed", p.Name())
+		}
 		m.processors[p.Name()] = p
+	}
+	return nil
+}
+
+func (m *managerImplement) RemoveProcessor(processors ...ActorProcessor) {
+	for _, p := range processors {
+		delete(m.processors, p.Name())
 	}
 }
 

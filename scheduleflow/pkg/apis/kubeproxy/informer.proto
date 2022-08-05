@@ -4,8 +4,8 @@ package kubeproxy;
 
 import "k8s.io/apimachinery/pkg/runtime/schema/generated.proto";
 import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
-import "github.com/AsynkronIT/protoactor-go/actor/actor.proto";
-option go_package = "kubeproxy";
+import "scheduleflow.io/protoactor-go/actor/actor.proto";
+option go_package = "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy";
 
 enum SubscribeAction {
   CREATE = 0;
@@ -23,6 +23,22 @@ message SubscribeOption {
   int64 RateLimitation = 1;
 }
 
+message RenewSubscribeResource {
+  GroupVersionResource GVR = 1;
+  int32 ActionCode = 2;
+  SubscribeOption Option = 3;
+}
+
+message RenewSubscribeResourceFor {
+  RenewSubscribeResource Resource = 1;
+  actor.PID Subscriber = 2;
+}
+
+message RenewSubscribeResourceGroupFor {
+  repeated RenewSubscribeResource Resources = 1;
+  actor.PID Subscriber = 2;
+}
+
 message SubscribeResource {
   GroupVersionResource GVR = 1;
   int32 ActionCode = 2;
@@ -37,6 +53,11 @@ message SubscribeResourceFor {
 message SubscribeConfirm {
   k8s.io.apimachinery.pkg.apis.meta.v1.Time Timestamp = 1;
   SubscribeResource Subscribe = 2;
+  bool IsSubscribed = 3;
+}
+
+message SubscribeGroupConfirm {
+  repeated SubscribeConfirm Confirms = 1;
 }
 
 message CreateEvent {
