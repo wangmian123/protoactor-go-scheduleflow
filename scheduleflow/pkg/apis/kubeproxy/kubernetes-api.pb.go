@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.26.0
 // 	protoc        v3.12.4
-// source: scheduleflow.io/scheduleflow/pkg/apis/kubeproxy/kubernetes-api.proto
+// source: github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy/kubernetes-api.proto
 
 package kubeproxy
 
@@ -82,7 +82,7 @@ type Response struct {
 
 	Metadata *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	GVR      *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
-	Resource []byte                `protobuf:"bytes,3,opt,name=NewResource,proto3" json:"NewResource,omitempty"`
+	Resource []byte                `protobuf:"bytes,3,opt,name=Resource,proto3" json:"Resource,omitempty"`
 	Error    *Error                `protobuf:"bytes,4,opt,name=Error,proto3" json:"Error,omitempty"`
 }
 
@@ -507,7 +507,7 @@ type Create struct {
 	Metadata      *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	GVR           *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
 	CreateOptions *v1.CreateOptions     `protobuf:"bytes,3,opt,name=CreateOptions,proto3" json:"CreateOptions,omitempty"`
-	Resource      []byte                `protobuf:"bytes,4,opt,name=NewResource,proto3" json:"NewResource,omitempty"`
+	Resource      []byte                `protobuf:"bytes,4,opt,name=Resource,proto3" json:"Resource,omitempty"`
 	SubResources  []string              `protobuf:"bytes,5,rep,name=SubResources,proto3" json:"SubResources,omitempty"`
 }
 
@@ -586,7 +586,7 @@ type Update struct {
 	Metadata      *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	GVR           *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
 	UpdateOptions *v1.UpdateOptions     `protobuf:"bytes,3,opt,name=UpdateOptions,proto3" json:"UpdateOptions,omitempty"`
-	Resource      []byte                `protobuf:"bytes,4,opt,name=NewResource,proto3" json:"NewResource,omitempty"`
+	Resource      []byte                `protobuf:"bytes,4,opt,name=Resource,proto3" json:"Resource,omitempty"`
 	SubResources  []string              `protobuf:"bytes,5,rep,name=SubResources,proto3" json:"SubResources,omitempty"`
 }
 
@@ -665,7 +665,7 @@ type UpdateStatus struct {
 	Metadata      *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	GVR           *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
 	UpdateOptions *v1.UpdateOptions     `protobuf:"bytes,3,opt,name=UpdateOptions,proto3" json:"UpdateOptions,omitempty"`
-	Resource      []byte                `protobuf:"bytes,4,opt,name=NewResource,proto3" json:"NewResource,omitempty"`
+	Resource      []byte                `protobuf:"bytes,4,opt,name=Resource,proto3" json:"Resource,omitempty"`
 }
 
 func (x *UpdateStatus) Reset() {
@@ -807,7 +807,7 @@ type Patch struct {
 	Metadata     *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
 	GVR          *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
 	PatchType    PatchType             `protobuf:"varint,3,opt,name=PatchType,proto3,enum=kubeproxy.PatchType" json:"PatchType,omitempty"`
-	Resource     []byte                `protobuf:"bytes,4,opt,name=NewResource,proto3" json:"NewResource,omitempty"`
+	Resource     []byte                `protobuf:"bytes,4,opt,name=Resource,proto3" json:"Resource,omitempty"`
 	PatchOptions *v1.PatchOptions      `protobuf:"bytes,5,opt,name=PatchOptions,proto3" json:"PatchOptions,omitempty"`
 	SubResources []string              `protobuf:"bytes,6,rep,name=SubResources,proto3" json:"SubResources,omitempty"`
 }
@@ -880,6 +880,172 @@ func (x *Patch) GetPatchOptions() *v1.PatchOptions {
 }
 
 func (x *Patch) GetSubResources() []string {
+	if x != nil {
+		return x.SubResources
+	}
+	return nil
+}
+
+type PatchStatus struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Metadata     *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
+	GVR          *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
+	PatchType    PatchType             `protobuf:"varint,3,opt,name=PatchType,proto3,enum=kubeproxy.PatchType" json:"PatchType,omitempty"`
+	Resource     []byte                `protobuf:"bytes,4,opt,name=Resource,proto3" json:"Resource,omitempty"`
+	PatchOptions *v1.PatchOptions      `protobuf:"bytes,5,opt,name=PatchOptions,proto3" json:"PatchOptions,omitempty"`
+}
+
+func (x *PatchStatus) Reset() {
+	*x = PatchStatus{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *PatchStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchStatus) ProtoMessage() {}
+
+func (x *PatchStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchStatus.ProtoReflect.Descriptor instead.
+func (*PatchStatus) Descriptor() ([]byte, []int) {
+	return file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PatchStatus) GetMetadata() *v1.ObjectMeta {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *PatchStatus) GetGVR() *GroupVersionResource {
+	if x != nil {
+		return x.GVR
+	}
+	return nil
+}
+
+func (x *PatchStatus) GetPatchType() PatchType {
+	if x != nil {
+		return x.PatchType
+	}
+	return PatchType_JSONPatchType
+}
+
+func (x *PatchStatus) GetResource() []byte {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *PatchStatus) GetPatchOptions() *v1.PatchOptions {
+	if x != nil {
+		return x.PatchOptions
+	}
+	return nil
+}
+
+type Synchronize struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Metadata      *v1.ObjectMeta        `protobuf:"bytes,1,opt,name=Metadata,proto3" json:"Metadata,omitempty"`
+	GVR           *GroupVersionResource `protobuf:"bytes,2,opt,name=GVR,proto3" json:"GVR,omitempty"`
+	UpdateOptions *v1.UpdateOptions     `protobuf:"bytes,3,opt,name=UpdateOptions,proto3" json:"UpdateOptions,omitempty"`
+	Original      []byte                `protobuf:"bytes,4,opt,name=Original,proto3" json:"Original,omitempty"`
+	Synchronizing []byte                `protobuf:"bytes,5,opt,name=Synchronizing,proto3" json:"Synchronizing,omitempty"`
+	SubResources  []string              `protobuf:"bytes,6,rep,name=SubResources,proto3" json:"SubResources,omitempty"`
+}
+
+func (x *Synchronize) Reset() {
+	*x = Synchronize{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Synchronize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Synchronize) ProtoMessage() {}
+
+func (x *Synchronize) ProtoReflect() protoreflect.Message {
+	mi := &file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Synchronize.ProtoReflect.Descriptor instead.
+func (*Synchronize) Descriptor() ([]byte, []int) {
+	return file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *Synchronize) GetMetadata() *v1.ObjectMeta {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *Synchronize) GetGVR() *GroupVersionResource {
+	if x != nil {
+		return x.GVR
+	}
+	return nil
+}
+
+func (x *Synchronize) GetUpdateOptions() *v1.UpdateOptions {
+	if x != nil {
+		return x.UpdateOptions
+	}
+	return nil
+}
+
+func (x *Synchronize) GetOriginal() []byte {
+	if x != nil {
+		return x.Original
+	}
+	return nil
+}
+
+func (x *Synchronize) GetSynchronizing() []byte {
+	if x != nil {
+		return x.Synchronizing
+	}
+	return nil
+}
+
+func (x *Synchronize) GetSubResources() []string {
 	if x != nil {
 		return x.SubResources
 	}
@@ -1072,16 +1238,57 @@ var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_ra
 	0x0c, 0x50, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x22, 0x0a,
 	0x0c, 0x53, 0x75, 0x62, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x73, 0x18, 0x06, 0x20,
 	0x03, 0x28, 0x09, 0x52, 0x0c, 0x53, 0x75, 0x62, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65,
-	0x73, 0x2a, 0x62, 0x0a, 0x09, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x12, 0x11,
-	0x0a, 0x0d, 0x4a, 0x53, 0x4f, 0x4e, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10,
-	0x00, 0x12, 0x11, 0x0a, 0x0d, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x50, 0x61, 0x74, 0x68, 0x54, 0x79,
-	0x70, 0x65, 0x10, 0x01, 0x12, 0x1b, 0x0a, 0x17, 0x53, 0x74, 0x72, 0x61, 0x74, 0x65, 0x67, 0x69,
-	0x63, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10,
-	0x02, 0x12, 0x12, 0x0a, 0x0e, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54,
-	0x79, 0x70, 0x65, 0x10, 0x03, 0x42, 0x31, 0x5a, 0x2f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c,
-	0x65, 0x66, 0x6c, 0x6f, 0x77, 0x2e, 0x69, 0x6f, 0x2f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c,
-	0x65, 0x66, 0x6c, 0x6f, 0x77, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x61, 0x70, 0x69, 0x73, 0x2f, 0x6b,
-	0x75, 0x62, 0x65, 0x70, 0x72, 0x6f, 0x78, 0x79, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x73, 0x22, 0xb6, 0x02, 0x0a, 0x0b, 0x50, 0x61, 0x74, 0x63, 0x68, 0x53, 0x74, 0x61, 0x74, 0x75,
+	0x73, 0x12, 0x4c, 0x0a, 0x08, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x6b, 0x38, 0x73, 0x2e, 0x69, 0x6f, 0x2e, 0x61, 0x70, 0x69,
+	0x6d, 0x61, 0x63, 0x68, 0x69, 0x6e, 0x65, 0x72, 0x79, 0x2e, 0x70, 0x6b, 0x67, 0x2e, 0x61, 0x70,
+	0x69, 0x73, 0x2e, 0x6d, 0x65, 0x74, 0x61, 0x2e, 0x76, 0x31, 0x2e, 0x4f, 0x62, 0x6a, 0x65, 0x63,
+	0x74, 0x4d, 0x65, 0x74, 0x61, 0x52, 0x08, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12,
+	0x31, 0x0a, 0x03, 0x47, 0x56, 0x52, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x6b,
+	0x75, 0x62, 0x65, 0x70, 0x72, 0x6f, 0x78, 0x79, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x56, 0x65,
+	0x72, 0x73, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x52, 0x03, 0x47,
+	0x56, 0x52, 0x12, 0x32, 0x0a, 0x09, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x18,
+	0x03, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x14, 0x2e, 0x6b, 0x75, 0x62, 0x65, 0x70, 0x72, 0x6f, 0x78,
+	0x79, 0x2e, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x52, 0x09, 0x50, 0x61, 0x74,
+	0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72,
+	0x63, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72,
+	0x63, 0x65, 0x12, 0x56, 0x0a, 0x0c, 0x50, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x70, 0x74, 0x69, 0x6f,
+	0x6e, 0x73, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x32, 0x2e, 0x6b, 0x38, 0x73, 0x2e, 0x69,
+	0x6f, 0x2e, 0x61, 0x70, 0x69, 0x6d, 0x61, 0x63, 0x68, 0x69, 0x6e, 0x65, 0x72, 0x79, 0x2e, 0x70,
+	0x6b, 0x67, 0x2e, 0x61, 0x70, 0x69, 0x73, 0x2e, 0x6d, 0x65, 0x74, 0x61, 0x2e, 0x76, 0x31, 0x2e,
+	0x50, 0x61, 0x74, 0x63, 0x68, 0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x0c, 0x50, 0x61,
+	0x74, 0x63, 0x68, 0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0xcf, 0x02, 0x0a, 0x0b, 0x53,
+	0x79, 0x6e, 0x63, 0x68, 0x72, 0x6f, 0x6e, 0x69, 0x7a, 0x65, 0x12, 0x4c, 0x0a, 0x08, 0x4d, 0x65,
+	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x30, 0x2e, 0x6b,
+	0x38, 0x73, 0x2e, 0x69, 0x6f, 0x2e, 0x61, 0x70, 0x69, 0x6d, 0x61, 0x63, 0x68, 0x69, 0x6e, 0x65,
+	0x72, 0x79, 0x2e, 0x70, 0x6b, 0x67, 0x2e, 0x61, 0x70, 0x69, 0x73, 0x2e, 0x6d, 0x65, 0x74, 0x61,
+	0x2e, 0x76, 0x31, 0x2e, 0x4f, 0x62, 0x6a, 0x65, 0x63, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x52, 0x08,
+	0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x31, 0x0a, 0x03, 0x47, 0x56, 0x52, 0x18,
+	0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1f, 0x2e, 0x6b, 0x75, 0x62, 0x65, 0x70, 0x72, 0x6f, 0x78,
+	0x79, 0x2e, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x52, 0x65,
+	0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x52, 0x03, 0x47, 0x56, 0x52, 0x12, 0x59, 0x0a, 0x0d, 0x55,
+	0x70, 0x64, 0x61, 0x74, 0x65, 0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x33, 0x2e, 0x6b, 0x38, 0x73, 0x2e, 0x69, 0x6f, 0x2e, 0x61, 0x70, 0x69, 0x6d,
+	0x61, 0x63, 0x68, 0x69, 0x6e, 0x65, 0x72, 0x79, 0x2e, 0x70, 0x6b, 0x67, 0x2e, 0x61, 0x70, 0x69,
+	0x73, 0x2e, 0x6d, 0x65, 0x74, 0x61, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65,
+	0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x52, 0x0d, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4f,
+	0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x12, 0x1a, 0x0a, 0x08, 0x4f, 0x72, 0x69, 0x67, 0x69, 0x6e,
+	0x61, 0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x08, 0x4f, 0x72, 0x69, 0x67, 0x69, 0x6e,
+	0x61, 0x6c, 0x12, 0x24, 0x0a, 0x0d, 0x53, 0x79, 0x6e, 0x63, 0x68, 0x72, 0x6f, 0x6e, 0x69, 0x7a,
+	0x69, 0x6e, 0x67, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0d, 0x53, 0x79, 0x6e, 0x63, 0x68,
+	0x72, 0x6f, 0x6e, 0x69, 0x7a, 0x69, 0x6e, 0x67, 0x12, 0x22, 0x0a, 0x0c, 0x53, 0x75, 0x62, 0x52,
+	0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x73, 0x18, 0x06, 0x20, 0x03, 0x28, 0x09, 0x52, 0x0c,
+	0x53, 0x75, 0x62, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x73, 0x2a, 0x62, 0x0a, 0x09,
+	0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x12, 0x11, 0x0a, 0x0d, 0x4a, 0x53, 0x4f,
+	0x4e, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10, 0x00, 0x12, 0x11, 0x0a, 0x0d,
+	0x4d, 0x65, 0x72, 0x67, 0x65, 0x50, 0x61, 0x74, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10, 0x01, 0x12,
+	0x1b, 0x0a, 0x17, 0x53, 0x74, 0x72, 0x61, 0x74, 0x65, 0x67, 0x69, 0x63, 0x4d, 0x65, 0x72, 0x67,
+	0x65, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10, 0x02, 0x12, 0x12, 0x0a, 0x0e,
+	0x41, 0x70, 0x70, 0x6c, 0x79, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x79, 0x70, 0x65, 0x10, 0x03,
+	0x42, 0x31, 0x5a, 0x2f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65, 0x66, 0x6c, 0x6f, 0x77,
+	0x2e, 0x69, 0x6f, 0x2f, 0x73, 0x63, 0x68, 0x65, 0x64, 0x75, 0x6c, 0x65, 0x66, 0x6c, 0x6f, 0x77,
+	0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x61, 0x70, 0x69, 0x73, 0x2f, 0x6b, 0x75, 0x62, 0x65, 0x70, 0x72,
+	0x6f, 0x78, 0x79, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1097,7 +1304,7 @@ func file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_r
 }
 
 var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_goTypes = []interface{}{
 	(PatchType)(0),               // 0: kubeproxy.PatchType
 	(*Response)(nil),             // 1: kubeproxy.Response
@@ -1112,53 +1319,62 @@ var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_go
 	(*UpdateStatus)(nil),         // 10: kubeproxy.UpdateStatus
 	(*Delete)(nil),               // 11: kubeproxy.Delete
 	(*Patch)(nil),                // 12: kubeproxy.Patch
-	(*v1.ObjectMeta)(nil),        // 13: k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	(*GroupVersionResource)(nil), // 14: kubeproxy.GroupVersionResource
-	(*durationpb.Duration)(nil),  // 15: google.protobuf.Duration
-	(*v1.GetOptions)(nil),        // 16: k8s.io.apimachinery.pkg.apis.meta.v1.GetOptions
-	(*v1.ListOptions)(nil),       // 17: k8s.io.apimachinery.pkg.apis.meta.v1.ListOptions
-	(*v1.CreateOptions)(nil),     // 18: k8s.io.apimachinery.pkg.apis.meta.v1.CreateOptions
-	(*v1.UpdateOptions)(nil),     // 19: k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
-	(*v1.DeleteOptions)(nil),     // 20: k8s.io.apimachinery.pkg.apis.meta.v1.DeleteOptions
-	(*v1.PatchOptions)(nil),      // 21: k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions
+	(*PatchStatus)(nil),          // 13: kubeproxy.PatchStatus
+	(*Synchronize)(nil),          // 14: kubeproxy.Synchronize
+	(*v1.ObjectMeta)(nil),        // 15: k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	(*GroupVersionResource)(nil), // 16: kubeproxy.GroupVersionResource
+	(*durationpb.Duration)(nil),  // 17: google.protobuf.Duration
+	(*v1.GetOptions)(nil),        // 18: k8s.io.apimachinery.pkg.apis.meta.v1.GetOptions
+	(*v1.ListOptions)(nil),       // 19: k8s.io.apimachinery.pkg.apis.meta.v1.ListOptions
+	(*v1.CreateOptions)(nil),     // 20: k8s.io.apimachinery.pkg.apis.meta.v1.CreateOptions
+	(*v1.UpdateOptions)(nil),     // 21: k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
+	(*v1.DeleteOptions)(nil),     // 22: k8s.io.apimachinery.pkg.apis.meta.v1.DeleteOptions
+	(*v1.PatchOptions)(nil),      // 23: k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions
 }
 var file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_depIdxs = []int32{
-	13, // 0: kubeproxy.Response.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 1: kubeproxy.Response.GVR:type_name -> kubeproxy.GroupVersionResource
+	15, // 0: kubeproxy.Response.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 1: kubeproxy.Response.GVR:type_name -> kubeproxy.GroupVersionResource
 	2,  // 2: kubeproxy.Response.Error:type_name -> kubeproxy.Error
-	15, // 3: kubeproxy.BlockGetOptions.BlockTimeout:type_name -> google.protobuf.Duration
-	13, // 4: kubeproxy.BlockGet.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 5: kubeproxy.BlockGet.GVR:type_name -> kubeproxy.GroupVersionResource
+	17, // 3: kubeproxy.BlockGetOptions.BlockTimeout:type_name -> google.protobuf.Duration
+	15, // 4: kubeproxy.BlockGet.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 5: kubeproxy.BlockGet.GVR:type_name -> kubeproxy.GroupVersionResource
 	3,  // 6: kubeproxy.BlockGet.GetOptions:type_name -> kubeproxy.BlockGetOptions
-	13, // 7: kubeproxy.UnlockResource.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 8: kubeproxy.UnlockResource.GVR:type_name -> kubeproxy.GroupVersionResource
-	13, // 9: kubeproxy.Get.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 10: kubeproxy.Get.GVR:type_name -> kubeproxy.GroupVersionResource
-	16, // 11: kubeproxy.Get.GetOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.GetOptions
-	13, // 12: kubeproxy.List.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 13: kubeproxy.List.GVR:type_name -> kubeproxy.GroupVersionResource
-	17, // 14: kubeproxy.List.ListOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ListOptions
-	13, // 15: kubeproxy.Create.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 16: kubeproxy.Create.GVR:type_name -> kubeproxy.GroupVersionResource
-	18, // 17: kubeproxy.Create.CreateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.CreateOptions
-	13, // 18: kubeproxy.Update.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 19: kubeproxy.Update.GVR:type_name -> kubeproxy.GroupVersionResource
-	19, // 20: kubeproxy.Update.UpdateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
-	13, // 21: kubeproxy.UpdateStatus.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 22: kubeproxy.UpdateStatus.GVR:type_name -> kubeproxy.GroupVersionResource
-	19, // 23: kubeproxy.UpdateStatus.UpdateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
-	13, // 24: kubeproxy.Delete.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 25: kubeproxy.Delete.GVR:type_name -> kubeproxy.GroupVersionResource
-	20, // 26: kubeproxy.Delete.DeleteOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.DeleteOptions
-	13, // 27: kubeproxy.Patch.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
-	14, // 28: kubeproxy.Patch.GVR:type_name -> kubeproxy.GroupVersionResource
+	15, // 7: kubeproxy.UnlockResource.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 8: kubeproxy.UnlockResource.GVR:type_name -> kubeproxy.GroupVersionResource
+	15, // 9: kubeproxy.Get.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 10: kubeproxy.Get.GVR:type_name -> kubeproxy.GroupVersionResource
+	18, // 11: kubeproxy.Get.GetOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.GetOptions
+	15, // 12: kubeproxy.List.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 13: kubeproxy.List.GVR:type_name -> kubeproxy.GroupVersionResource
+	19, // 14: kubeproxy.List.ListOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ListOptions
+	15, // 15: kubeproxy.Create.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 16: kubeproxy.Create.GVR:type_name -> kubeproxy.GroupVersionResource
+	20, // 17: kubeproxy.Create.CreateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.CreateOptions
+	15, // 18: kubeproxy.Update.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 19: kubeproxy.Update.GVR:type_name -> kubeproxy.GroupVersionResource
+	21, // 20: kubeproxy.Update.UpdateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
+	15, // 21: kubeproxy.UpdateStatus.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 22: kubeproxy.UpdateStatus.GVR:type_name -> kubeproxy.GroupVersionResource
+	21, // 23: kubeproxy.UpdateStatus.UpdateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
+	15, // 24: kubeproxy.Delete.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 25: kubeproxy.Delete.GVR:type_name -> kubeproxy.GroupVersionResource
+	22, // 26: kubeproxy.Delete.DeleteOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.DeleteOptions
+	15, // 27: kubeproxy.Patch.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 28: kubeproxy.Patch.GVR:type_name -> kubeproxy.GroupVersionResource
 	0,  // 29: kubeproxy.Patch.PatchType:type_name -> kubeproxy.PatchType
-	21, // 30: kubeproxy.Patch.PatchOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions
-	31, // [31:31] is the sub-list for method output_type
-	31, // [31:31] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	23, // 30: kubeproxy.Patch.PatchOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions
+	15, // 31: kubeproxy.PatchStatus.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 32: kubeproxy.PatchStatus.GVR:type_name -> kubeproxy.GroupVersionResource
+	0,  // 33: kubeproxy.PatchStatus.PatchType:type_name -> kubeproxy.PatchType
+	23, // 34: kubeproxy.PatchStatus.PatchOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions
+	15, // 35: kubeproxy.Synchronize.Metadata:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta
+	16, // 36: kubeproxy.Synchronize.GVR:type_name -> kubeproxy.GroupVersionResource
+	21, // 37: kubeproxy.Synchronize.UpdateOptions:type_name -> k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_init() }
@@ -1312,6 +1528,30 @@ func file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_i
 				return nil
 			}
 		}
+		file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*PatchStatus); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Synchronize); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1319,7 +1559,7 @@ func file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_i
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_scheduleflow_io_scheduleflow_pkg_apis_kubeproxy_kubernetes_api_proto_rawDesc,
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

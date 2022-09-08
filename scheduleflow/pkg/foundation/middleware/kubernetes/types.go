@@ -4,10 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
-
 	"github.com/asynkron/protoactor-go/actor"
-	v1 "k8s.io/api/core/v1"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -103,9 +102,11 @@ type ResourceOperator[R any] interface {
 	List(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error)
 	ListSlice(ctx context.Context, opts metav1.ListOptions) ([]*R, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, options metav1.PatchOptions, subresources ...string) (*R, error)
+	PatchStatus(ctx context.Context, name string, pt types.PatchType, data []byte, options metav1.PatchOptions) (*R, error)
 }
 
 type SynchronizeResource[R any] interface {
 	BlockGet(ctx context.Context, name string, options kubeproxy.BlockGetOptions, subresources ...string) (*R, error)
 	UnlockResource(ctx context.Context, name string) error
+	Synchronize(ctx context.Context, original, synchronizing *R, options metav1.UpdateOptions) (*R, error)
 }

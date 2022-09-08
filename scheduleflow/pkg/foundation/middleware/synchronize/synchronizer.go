@@ -205,149 +205,138 @@ func (sync *synchronizerPair) generateMappingAssignmentInfo(op *Operation, task 
 }
 
 func (sync *synchronizerPair) onSourceAdd(resource unstructured.Unstructured) {
-	resource = *resource.DeepCopy()
 	as, ok := sync.findSourceAssignment(resource.GetNamespace(), resource.GetName())
 	if !ok {
 		return
 	}
 
-	target, _ := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
+	target, err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
 		BlockGet(context.Background(), as.mappingName, kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.target.miniInterval)})
 
-	if target != nil {
-		target = target.DeepCopy()
+	var mutatedTarget *DynamicMutatedResult
+	if err != nil {
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), nil)
+	} else {
+		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), target.DeepCopy())
 	}
 
-	defer func() {
-		err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).UnlockResource(context.Background(), as.mappingName)
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
-
-	mutatedResource, err := as.SynchronizeTarget().SynchronizeAddedResource(&resource, target)
 	if err != nil {
 		logrus.Errorf("mutate synchronizing resource error: %v", err)
 		return
 	}
 
-	if mutatedResource == nil {
+	if mutatedTarget == nil {
 		return
 	}
 
-	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedResource)
+	if mutatedTarget.OriginalResource == nil {
+		mutatedTarget.OriginalResource = target
+	}
+
+	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
-		logrus.Errorf("synchronizing target resource with error: %v", err)
+		logrus.Debugf("synchronizing target resource with error: %v", err)
 		return
 	}
 }
 
 func (sync *synchronizerPair) onTargetAdd(resource unstructured.Unstructured) {
-	resource = *resource.DeepCopy()
 	as, ok := sync.findTargetAssignment(resource.GetNamespace(), resource.GetName())
 	if !ok {
 		return
 	}
 
-	source, _ := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
+	source, err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
 		BlockGet(context.Background(), as.GetName(), kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.source.miniInterval)})
-	if source != nil {
-		source = source.DeepCopy()
-	}
-	defer func() {
-		err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
 
-	mutatedResource, err := as.SynchronizeSource().SynchronizeAddedResource(&resource, source)
+	var mutatedSource *DynamicMutatedResult
+	if err != nil {
+		mutatedSource, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), nil)
+	} else {
+		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+		mutatedSource, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), source.DeepCopy())
+	}
+
 	if err != nil {
 		logrus.Errorf("mutate synchronizing resource error: %v", err)
 		return
 	}
-
-	if mutatedResource == nil {
+	if mutatedSource == nil {
 		return
 	}
+	if mutatedSource.OriginalResource == nil {
+		mutatedSource.OriginalResource = source
+	}
 
-	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedResource)
+	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
-		logrus.Errorf("synchronizing source resource with error: %v", err)
+		logrus.Debugf("synchronizing source resource with error: %v", err)
 		return
 	}
 }
 
 func (sync *synchronizerPair) onSourceUpdate(oldRes, newRes unstructured.Unstructured) {
-	newRes = *newRes.DeepCopy()
 	as, ok := sync.findSourceAssignment(newRes.GetNamespace(), newRes.GetName())
 	if !ok {
 		return
 	}
 
-	target, _ := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
+	target, err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
 		BlockGet(context.Background(), as.mappingName, kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.target.miniInterval)})
 
-	if target != nil {
-		target = target.DeepCopy()
+	var mutatedTarget *DynamicMutatedResult
+	if err != nil {
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeUpdatedResource(oldRes.DeepCopy(), newRes.DeepCopy(), nil)
+	} else {
+		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeUpdatedResource(oldRes.DeepCopy(), newRes.DeepCopy(), target.DeepCopy())
 	}
-
-	defer func() {
-		err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).UnlockResource(context.Background(), as.mappingName)
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
-
-	mutatedResource, err := as.SynchronizeTarget().SynchronizeUpdatedResource(&oldRes, &newRes, target)
 	if err != nil {
 		logrus.Errorf("mutate synchronizing resource error: %v", err)
 		return
 	}
 
-	if mutatedResource == nil {
+	if mutatedTarget == nil {
 		return
 	}
 
-	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedResource)
+	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
-		logrus.Errorf("synchronizing target resource with error: %v", err)
+		logrus.Debugf("synchronizing target resource with error: %v", err)
 		return
 	}
 }
 
 func (sync *synchronizerPair) onTargetUpdate(oldRes, newRes unstructured.Unstructured) {
-	newRes = *newRes.DeepCopy()
 	as, ok := sync.findTargetAssignment(newRes.GetNamespace(), newRes.GetName())
 	if !ok {
 		return
 	}
 
-	source, _ := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
+	source, err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
 		BlockGet(context.Background(), as.GetName(), kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.source.miniInterval)})
-	if source != nil {
-		source = source.DeepCopy()
-	}
-	defer func() {
-		err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
 
-	mutatedResource, err := as.SynchronizeSource().SynchronizeUpdatedResource(&oldRes, &newRes, source)
+	var mutatedSource *DynamicMutatedResult
+	if err != nil {
+		mutatedSource, err = as.SynchronizeSource().SynchronizeUpdatedResource(oldRes.DeepCopy(), newRes.DeepCopy(), nil)
+	} else {
+		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+		mutatedSource, err = as.SynchronizeSource().SynchronizeUpdatedResource(oldRes.DeepCopy(), newRes.DeepCopy(), source.DeepCopy())
+	}
+
 	if err != nil {
 		logrus.Errorf("mutate synchronizing resource error: %v", err)
 		return
 	}
 
-	if mutatedResource == nil {
+	if mutatedSource == nil {
 		return
 	}
 
-	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedResource)
+	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
-		logrus.Errorf("synchronizing source resource with error: %v", err)
+		logrus.Debugf("synchronizing source resource with error: %v", err)
 		return
 	}
 }
@@ -357,34 +346,32 @@ func (sync *synchronizerPair) onSourceDelete(resource unstructured.Unstructured)
 	if !ok {
 		return
 	}
+	sync.deleteAssignment(as)
 
-	targetRes, err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
+	target, err := sync.target.kubernetesAPI.Namespace(as.mappingNamespace).
 		BlockGet(context.Background(), as.mappingName, kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.target.miniInterval)})
+
+	var mutatedTarget *DynamicMutatedResult
 	if err != nil {
-		logrus.Errorf("can not get resource due to %v", err)
-		return
-	}
-	defer func() {
-		err = sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
-	if targetRes == nil {
-		sync.deleteAssignment(as)
-		return
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeDeletedResource(resource.DeepCopy(), nil)
+	} else {
+		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+		mutatedTarget, err = as.SynchronizeTarget().SynchronizeDeletedResource(resource.DeepCopy(), target.DeepCopy())
 	}
 
-	target, err := as.SynchronizeTarget().SynchronizeDeletedResource(&resource, targetRes)
 	if err != nil {
 		logrus.Errorf("permite deleting source resource fail due to %v", err)
 		return
 	}
 
-	if target != nil {
-		_, err = sync.mutateResource(sync.target.kubernetesAPI, target)
+	if mutatedTarget.OriginalResource == nil {
+		mutatedTarget.OriginalResource = target
+	}
+
+	if mutatedTarget != nil {
+		_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 		if err != nil {
-			logrus.Errorf("synchronizing target resource fail onTargetDelete due to %v", err)
+			logrus.Debugf("synchronizing target resource fail onTargetDelete due to %v", err)
 		}
 	}
 }
@@ -395,39 +382,37 @@ func (sync *synchronizerPair) onTargetDelete(resource unstructured.Unstructured)
 		return
 	}
 
-	sourceRes, err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
+	source, err := sync.source.kubernetesAPI.Namespace(as.GetNamespace()).
 		BlockGet(context.Background(), as.GetName(), kubeproxy.BlockGetOptions{BlockTimeout: durationpb.New(sync.source.miniInterval)})
 	if err != nil {
-		logrus.Errorf("get source resource fail due to %v", err)
-		return
-	}
-	defer func() {
-		err = sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
-		if err != nil {
-			logrus.Errorf("unlock resource fail due to %v", err)
-		}
-	}()
-	if sourceRes == nil {
 		sync.deleteAssignment(as)
 		return
 	}
 
-	source, err := as.SynchronizeSource().SynchronizeDeletedResource(&resource, sourceRes)
+	defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
+
+	var mutatedSource *DynamicMutatedResult
+	mutatedSource, err = as.SynchronizeTarget().SynchronizeDeletedResource(resource.DeepCopy(), source.DeepCopy())
 	if err != nil {
 		logrus.Errorf("permite deleting source resource fail due to %v", err)
 		return
 	}
 
-	if source != nil {
-		updatedSource, err := sync.mutateResource(sync.source.kubernetesAPI, source)
-		if err != nil {
-			logrus.Errorf("synchronizing source resource fail onTargetDelete due to %v", err)
-			return
-		}
-		if updatedSource == nil {
-			sync.deleteAssignment(as)
-		}
-	} else {
+	if mutatedSource.OriginalResource == nil {
+		mutatedSource.OriginalResource = source
+	}
+
+	if mutatedSource == nil {
+		return
+	}
+
+	updatedSource, err := sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
+	if err != nil {
+		logrus.Debugf("synchronizing source resource fail onTargetDelete due to %v", err)
+		return
+	}
+
+	if updatedSource == nil {
 		sync.deleteAssignment(as)
 	}
 }
@@ -456,36 +441,11 @@ func (sync *synchronizerPair) mutateResource(api kubernetes.DynamicNamespaceable
 		}
 		return api.Namespace(res.MutatedResource.GetNamespace()).UpdateStatus(context.Background(), res.MutatedResource, v1.UpdateOptions{})
 	case Synchronize:
-		if res.MutatedResource == nil {
-			return nil, fmt.Errorf("sync a empty resource")
-		}
-		_, err := api.Namespace(res.MutatedResource.GetNamespace()).Update(context.Background(), res.MutatedResource, v1.UpdateOptions{})
-		if err != nil {
-			return nil, err
-		}
-		updated, err := api.Namespace(res.MutatedResource.GetNamespace()).UpdateStatus(context.Background(), res.MutatedResource, v1.UpdateOptions{})
-		if err != nil {
-			return nil, err
-		}
-		return updated, nil
+		return sync.synchronize(api, res)
 	case Patch:
-		if res.MutatedResource == nil || res.OriginalResource == nil {
-			return nil, fmt.Errorf("patch a empty resource")
-		}
-		patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
-		if err != nil {
-			return nil, err
-		}
-		buffer, err := json.Marshal(patch)
-		if err != nil {
-			return nil, err
-		}
-		patched, err := api.Namespace(res.MutatedResource.GetNamespace()).Patch(context.Background(), res.MutatedResource.GetName(),
-			types.JSONPatchType, buffer, v1.PatchOptions{})
-		if err != nil {
-			return nil, err
-		}
-		return patched, nil
+		return sync.patch(api, res)
+	case PatchStatus:
+		return sync.patchStatus(api, res)
 	case Delete:
 		if res.MutatedResource == nil {
 			return nil, fmt.Errorf("delete a empty resource")
@@ -498,6 +458,70 @@ func (sync *synchronizerPair) mutateResource(api kubernetes.DynamicNamespaceable
 	default:
 		return nil, nil
 	}
+}
+
+func (sync *synchronizerPair) patch(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil || res.OriginalResource == nil {
+		return nil, fmt.Errorf("patch a empty resource")
+	}
+
+	patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
+	if err != nil {
+		return nil, err
+	}
+
+	buffer, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).Patch(context.Background(), res.MutatedResource.GetName(),
+		types.JSONPatchType, buffer, v1.PatchOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return patched, nil
+}
+
+func (sync *synchronizerPair) synchronize(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil {
+		return nil, fmt.Errorf("sync a empty resource")
+	}
+	if res.OriginalResource == nil {
+		return nil, fmt.Errorf("synchonrizing resource must specify the origin")
+	}
+
+	updated, err := api.Namespace(res.MutatedResource.GetNamespace()).Synchronize(context.Background(), res.OriginalResource,
+		res.MutatedResource, v1.UpdateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (sync *synchronizerPair) patchStatus(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil || res.OriginalResource == nil {
+		return nil, fmt.Errorf("patch a empty resource")
+	}
+
+	patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
+	if err != nil {
+		return nil, err
+	}
+
+	buffer, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).PatchStatus(context.Background(), res.MutatedResource.GetName(),
+		types.JSONPatchType, buffer, v1.PatchOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return patched, nil
 }
 
 func (sync *synchronizerPair) findSourceAssignment(namespace, name string) (*operationalAssignment, bool) {

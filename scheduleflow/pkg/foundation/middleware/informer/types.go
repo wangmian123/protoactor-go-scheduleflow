@@ -30,6 +30,26 @@ type DynamicInformer interface {
 	GetResourceStore(pid *actor.PID, gvr schema.GroupVersionResource) (KubernetesResourceStore[unstructured.Unstructured], bool)
 }
 
+// EventHandler recalls when resource add, delete or update.
+type EventHandler[R any] interface {
+	AddFunc(resource R)
+	DeleteFunc(resource R)
+	UpdateFunc(oldResource, newResource R)
+}
+
+type Informer[R any] interface {
+	SetResourceHandler(subscribe ...Subscribe[R]) ([]KubernetesOperableResourceStore[R], error)
+	GetResourceStore(pid *actor.PID, gvr schema.GroupVersionResource) (KubernetesResourceStore[R], bool)
+}
+
+type Subscribe[R any] struct {
+	Target          *actor.PID
+	Resource        SubscribeResource
+	StoreConstraint StoreConstraint[R]
+	Handler         EventHandler[R]
+	UpdateInterval  time.Duration
+}
+
 type KubernetesOperableResourceStore[R any] interface {
 	Set(R)
 	SetResourceHandler(handler fundamental.ResourceEventHandlerFuncs[R])
@@ -183,25 +203,27 @@ func (c *resourceChangingStoreConstraint[R]) Less(*ResourceChanging[R], *Resourc
 	return false
 }
 
-type HandlerFunc struct {
-	Creating func(resource unstructured.Unstructured)
-	Deleting func(resource unstructured.Unstructured)
-	Updating func(oldResource, newResource unstructured.Unstructured)
+type HandlerFunc = EventHandlerFunc[unstructured.Unstructured]
+
+type EventHandlerFunc[R any] struct {
+	Creating func(resource R)
+	Deleting func(resource R)
+	Updating func(oldResource, newResource R)
 }
 
-func (h *HandlerFunc) AddFunc(resource unstructured.Unstructured) {
+func (h *EventHandlerFunc[R]) AddFunc(resource R) {
 	if h.Creating != nil {
 		h.Creating(resource)
 	}
 }
 
-func (h *HandlerFunc) DeleteFunc(resource unstructured.Unstructured) {
+func (h *EventHandlerFunc[R]) DeleteFunc(resource R) {
 	if h.Deleting != nil {
 		h.Deleting(resource)
 	}
 }
 
-func (h *HandlerFunc) UpdateFunc(oldResource, newResource unstructured.Unstructured) {
+func (h *EventHandlerFunc[R]) UpdateFunc(oldResource, newResource R) {
 	if h.Updating != nil {
 		h.Updating(oldResource, newResource)
 	}

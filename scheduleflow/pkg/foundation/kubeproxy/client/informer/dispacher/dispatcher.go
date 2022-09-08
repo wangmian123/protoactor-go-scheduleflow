@@ -89,7 +89,7 @@ func (dis *dispatcher) Process(ctx actor.Context, env *actor.MessageEnvelope) (i
 func (dis *dispatcher) onCreateEvent(sourcePID *actor.PID, msg *kubeproxy.CreateEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_CREATE)
 	if err != nil {
-		logrus.Warning(err)
+		//logrus.Warning(err)
 		return
 	}
 
@@ -142,7 +142,7 @@ func (dis *dispatcher) flushCreateEvents(info *delayedFlushCreateEvent) {
 
 	subscribers, err := dis.findEventSubscribers(info.sourcePID, info.resource.GVR, kubeproxy.SubscribeAction_CREATE)
 	if err != nil {
-		logrus.Warning(err)
+		//logrus.Warning(err)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (dis *dispatcher) flushCreateEvents(info *delayedFlushCreateEvent) {
 func (dis *dispatcher) onDeleteEvent(sourcePID *actor.PID, msg *kubeproxy.DeleteEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_DELETE)
 	if err != nil {
-		logrus.Warning(err)
+		//logrus.Warning(err)
 		return
 	}
 
@@ -224,7 +224,7 @@ func (dis *dispatcher) broadcastDeleteEvent(msg *kubeproxy.DeleteEvent, subscrib
 func (dis *dispatcher) onUpdateEvent(sourcePID *actor.PID, msg *kubeproxy.UpdateEvent) {
 	subscribers, err := dis.findEventSubscribers(sourcePID, msg.GVR, kubeproxy.SubscribeAction_UPDATE)
 	if err != nil {
-		logrus.Warning(err)
+		//logrus.Warning(err)
 		return
 	}
 	dis.cacheUpdateEvent(sourcePID, msg)
@@ -235,7 +235,10 @@ func (dis *dispatcher) cacheUpdateEvent(sourcePID *actor.PID, msg *kubeproxy.Upd
 	key := formPidGvrKey(sourcePID, msg.GVR)
 	cache, ok := dis.eventCache.Get(key)
 	if !ok {
-		logrus.Errorf("%s receive delete event without cache store", logPrefix)
+		dis.cacheCreateEvent(sourcePID, &kubeproxy.CreateEvent{
+			GVR:         msg.GVR,
+			RawResource: msg.NewResource,
+		})
 		return
 	}
 

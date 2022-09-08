@@ -8,7 +8,7 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	cmap "github.com/orcaman/concurrent-map"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -228,4 +228,41 @@ func (cvt *dynamicConvertor[R]) BlockGet(ctx context.Context, name string, optio
 
 func (cvt *dynamicConvertor[R]) UnlockResource(ctx context.Context, name string) error {
 	return cvt.dyAPI.UnlockResource(ctx, name)
+}
+
+func (cvt *dynamicConvertor[R]) PatchStatus(ctx context.Context, name string, pt types.PatchType, data []byte, options metav1.PatchOptions) (*R, error) {
+	patched, err := cvt.dyAPI.PatchStatus(ctx, name, pt, data, options)
+	if err != nil {
+		return nil, err
+	}
+
+	updatedObj, err := informer.ConvertToResource[R](patched)
+	if err != nil {
+		return nil, err
+	}
+	return updatedObj, nil
+}
+
+func (cvt *dynamicConvertor[R]) Synchronize(ctx context.Context, original, synchronizing *R, options metav1.UpdateOptions) (*R, error) {
+	dyOriginal, err := informer.ConvertToUnstructured[R](original)
+	if err != nil {
+		return nil, err
+	}
+
+	dySynchronizing, err := informer.ConvertToUnstructured[R](synchronizing)
+	if err != nil {
+		return nil, err
+	}
+
+	dySynchronized, err := cvt.dyAPI.Synchronize(ctx, dyOriginal, dySynchronizing, options)
+	if err != nil {
+		return nil, err
+	}
+
+	synchronized, err := informer.ConvertToResource[R](dySynchronized)
+	if err != nil {
+		return nil, err
+	}
+
+	return synchronized, nil
 }

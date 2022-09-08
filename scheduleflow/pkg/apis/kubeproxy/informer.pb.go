@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.26.0
 // 	protoc        v3.12.4
-// source: scheduleflow.io/scheduleflow/pkg/apis/kubeproxy/informer.proto
+// source: github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy/informer.proto
 
 package kubeproxy
 

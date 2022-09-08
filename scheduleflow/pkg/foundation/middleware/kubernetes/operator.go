@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/watch"
-
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 type OperateResource[R any] struct {
@@ -81,8 +80,7 @@ func (r *OperateResource[R]) Update(ctx context.Context, obj *R, options metav1.
 	return r.requestUntilTimeout(ctx, updateInfo)
 }
 
-func (r *OperateResource[R]) UpdateStatus(ctx context.Context, obj *R,
-	options metav1.UpdateOptions) (*R, error) {
+func (r *OperateResource[R]) UpdateStatus(ctx context.Context, obj *R, options metav1.UpdateOptions) (*R, error) {
 	rawResource, err := marshal[R](obj)
 	if err != nil {
 		return nil, err
@@ -100,8 +98,8 @@ func (r *OperateResource[R]) UpdateStatus(ctx context.Context, obj *R,
 	return r.requestUntilTimeout(ctx, updateInfo)
 }
 
-func (r *OperateResource[R]) Delete(ctx context.Context, name string,
-	options metav1.DeleteOptions, subresources ...string) error {
+func (r *OperateResource[R]) Delete(ctx context.Context, name string, options metav1.DeleteOptions,
+	subresources ...string) error {
 	deleteInfo := &kubeproxy.Delete{
 		Metadata: &metav1.ObjectMeta{
 			Namespace: r.namespace,
@@ -115,8 +113,8 @@ func (r *OperateResource[R]) Delete(ctx context.Context, name string,
 	_, err := r.requestUntilTimeout(ctx, deleteInfo)
 	return err
 }
-func (r *OperateResource[R]) Get(ctx context.Context, name string,
-	options metav1.GetOptions, subresources ...string) (*R, error) {
+func (r *OperateResource[R]) Get(ctx context.Context, name string, options metav1.GetOptions,
+	subresources ...string) (*R, error) {
 	getInfo := &kubeproxy.Get{
 		Metadata: &metav1.ObjectMeta{
 			Namespace: r.namespace,
@@ -129,8 +127,8 @@ func (r *OperateResource[R]) Get(ctx context.Context, name string,
 	return r.requestUntilTimeout(ctx, getInfo)
 }
 
-func (r *OperateResource[R]) BlockGet(ctx context.Context, name string,
-	options kubeproxy.BlockGetOptions, subresources ...string) (*R, error) {
+func (r *OperateResource[R]) BlockGet(ctx context.Context, name string, options kubeproxy.BlockGetOptions,
+	subresources ...string) (*R, error) {
 	getInfo := &kubeproxy.BlockGet{
 		Metadata: &metav1.ObjectMeta{
 			Namespace: r.namespace,
@@ -231,6 +229,49 @@ func (r *OperateResource[R]) Patch(ctx context.Context, name string, pt types.Pa
 	return r.requestUntilTimeout(ctx, patchInfo)
 }
 
+func (r *OperateResource[R]) PatchStatus(ctx context.Context, name string, pt types.PatchType, data []byte,
+	options metav1.PatchOptions) (*R, error) {
+	code, ok := kubeproxy.PatchTypeToCode[pt]
+	if !ok {
+		return nil, fmt.Errorf("wrong patch type %s", pt)
+	}
+	patchInfo := &kubeproxy.PatchStatus{
+		Metadata: &metav1.ObjectMeta{
+			Namespace: r.namespace,
+			Name:      name,
+		},
+		GVR:          kubeproxy.NewGroupVersionResource(*r.gvr),
+		PatchType:    code,
+		Resource:     data,
+		PatchOptions: &options,
+	}
+	return r.requestUntilTimeout(ctx, patchInfo)
+}
+
+func (r *OperateResource[R]) Synchronize(ctx context.Context, original, synchronizing *R, options metav1.UpdateOptions) (*R, error) {
+	rawSynchronizing, err := marshal[R](synchronizing)
+	if err != nil {
+		return nil, err
+	}
+
+	rawOriginal, err := marshal[R](original)
+	if err != nil {
+		return nil, err
+	}
+
+	updateInfo := &kubeproxy.Synchronize{
+		Metadata: &metav1.ObjectMeta{
+			Namespace: r.namespace,
+		},
+		GVR:           kubeproxy.NewGroupVersionResource(*r.gvr),
+		UpdateOptions: &options,
+		Synchronizing: rawSynchronizing,
+		Original:      rawOriginal,
+	}
+
+	return r.requestUntilTimeout(ctx, updateInfo)
+}
+
 // Watch watches resource.
 // TODO: add a watch
 func (r *OperateResource[R]) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
@@ -264,7 +305,7 @@ func requestUntilTimeout[R any](ctx context.Context, future *actor.Future) (*R, 
 	}
 
 	if resp.Resource == nil {
-		return nil, fmt.Errorf("respond resource is empty")
+		return nil, nil
 	}
 	var ret R
 	err = json.Unmarshal(resp.Resource, &ret)

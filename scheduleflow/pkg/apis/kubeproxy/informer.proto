@@ -5,7 +5,7 @@ package kubeproxy;
 import "k8s.io/apimachinery/pkg/runtime/schema/generated.proto";
 import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
 import "scheduleflow.io/protoactor-go/actor/actor.proto";
-option go_package = "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy";
+option go_package = "github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy";
 
 enum SubscribeAction {
   CREATE = 0;

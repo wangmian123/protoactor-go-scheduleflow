@@ -3,10 +3,10 @@ syntax = "proto3";
 package kubeproxy;
 
 import "k8s.io/apimachinery/pkg/apis/meta/v1/generated.proto";
-import "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy/informer.proto";
+import "github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy/informer.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "scheduleflow.io/scheduleflow/pkg/apis/kubeproxy";
+option go_package = "github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy";
 
 message Response {
   k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
@@ -92,5 +92,22 @@ message Patch {
   PatchType PatchType = 3;
   bytes Resource = 4;
   k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions PatchOptions = 5;
+  repeated string SubResources = 6;
+}
+
+message PatchStatus {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  PatchType PatchType = 3;
+  bytes Resource = 4;
+  k8s.io.apimachinery.pkg.apis.meta.v1.PatchOptions PatchOptions = 5;
+}
+
+message Synchronize {
+  k8s.io.apimachinery.pkg.apis.meta.v1.ObjectMeta Metadata = 1;
+  GroupVersionResource GVR = 2;
+  k8s.io.apimachinery.pkg.apis.meta.v1.UpdateOptions UpdateOptions = 3;
+  bytes Original = 4;
+  bytes Synchronizing = 5;
   repeated string SubResources = 6;
 }

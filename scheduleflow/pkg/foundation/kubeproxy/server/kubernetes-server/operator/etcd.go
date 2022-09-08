@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
+	jsonpatch "github.com/evanphx/json-patch"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/sirupsen/logrus"
+	"github.com/wI2L/jsondiff"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -263,14 +266,11 @@ func (ope *resourceOperator) updateStatus(info *kubeproxy.UpdateStatus) (*kubepr
 		}
 
 		resource.SetResourceVersion(newest.GetResourceVersion())
-
 		updated, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
 			UpdateStatus(context.Background(), resource, *opt)
-
 		if err != nil {
 			return err
 		}
-
 		resource = updated
 		return nil
 	})
@@ -296,17 +296,13 @@ func (ope *resourceOperator) patch(info *kubeproxy.Patch) (*kubeproxy.Response, 
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 
-	resource := &unstructured.Unstructured{Object: make(map[string]interface{})}
-	resource.SetNamespace(info.GetMetadata().Namespace)
-	resource.SetName(info.GetMetadata().Name)
-
 	opt := info.GetPatchOptions()
 	if opt == nil {
 		opt = &v1.PatchOptions{}
 	}
 	patchType, ok := kubeproxy.PatchCodeToType[info.PatchType]
 	if !ok {
-		patchType = types.StrategicMergePatchType
+		patchType = types.JSONPatchType
 	}
 	resource, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
 		Patch(context.Background(), info.Metadata.Name, patchType, info.Resource, *opt, info.SubResources...)
@@ -314,6 +310,119 @@ func (ope *resourceOperator) patch(info *kubeproxy.Patch) (*kubeproxy.Response, 
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 	resp, err := json.Marshal(resource)
+	if err != nil {
+		return nil, err
+	}
+	return createKubernetesAPIResponse(info, resp), nil
+}
+
+func (ope *resourceOperator) patchStatus(info *kubeproxy.PatchStatus) (*kubeproxy.Response, error) {
+	if err := checkKubernetesBaseInformation(info); err != nil {
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+
+	if info.PatchType != 0 {
+		return createKubernetesAPIErrorResponse(info, fmt.Errorf("only support patch type PatchType_JSONPatchType")), nil
+	}
+
+	if info.Resource == nil {
+		err := fmt.Errorf("patch resource is nil")
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+
+	newest, err := ope.Resource(ope.gvr).Namespace(info.GetMetadata().Namespace).Get(context.Background(),
+		info.GetMetadata().Name, v1.GetOptions{})
+
+	modified, err := patchResource(info.Resource, newest)
+	if err != nil {
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+	modified.SetResourceVersion(newest.GetResourceVersion())
+
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		newest, err = ope.Resource(ope.gvr).Namespace(modified.GetNamespace()).
+			Get(context.Background(), modified.GetName(), v1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		modified, err = patchResource(info.Resource, newest)
+		if err != nil {
+			return err
+		}
+		modified.SetResourceVersion(newest.GetResourceVersion())
+		updated, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).UpdateStatus(context.Background(), modified, v1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		modified = updated
+		return nil
+	})
+
+	if err != nil {
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+	resp, err := json.Marshal(modified)
+	if err != nil {
+		return nil, err
+	}
+	return createKubernetesAPIResponse(info, resp), nil
+}
+
+func (ope *resourceOperator) synchronize(info *kubeproxy.Synchronize) (*kubeproxy.Response, error) {
+	if err := checkKubernetesBaseInformation(info); err != nil {
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+
+	if len(info.Original) == 0 || len(info.Synchronizing) == 0 {
+		err := fmt.Errorf("synchonrize resource is empty")
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+
+	origin := &unstructured.Unstructured{}
+	err := json.Unmarshal(info.Original, origin)
+	if err != nil {
+		return nil, err
+	}
+	synchronizing := &unstructured.Unstructured{}
+	err = json.Unmarshal(info.Synchronizing, synchronizing)
+	if err != nil {
+		return nil, err
+	}
+
+	updated := &unstructured.Unstructured{}
+
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		patchJson, err := jsondiff.Compare(origin, synchronizing)
+		if err != nil {
+			return err
+		}
+
+		patchBuffer, err := json.Marshal(patchJson)
+		if err != nil {
+			return err
+		}
+
+		resource, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
+			Patch(context.Background(), info.Metadata.Name, types.JSONPatchType, patchBuffer, v1.PatchOptions{}, info.SubResources...)
+		if err != nil {
+			return err
+		}
+		modified, err := patchResource(patchBuffer, resource)
+		if err != nil {
+			return err
+		}
+		modified.SetResourceVersion(resource.GetResourceVersion())
+		updated, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).UpdateStatus(context.Background(), modified, v1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return createKubernetesAPIErrorResponse(info, err), nil
+	}
+	resp, err := json.Marshal(updated)
 	if err != nil {
 		return nil, err
 	}
@@ -329,6 +438,59 @@ func (ope *resourceOperator) createResourceCond(resource *unstructured.Unstructu
 	}
 
 	return cond
+}
+
+func (ope *resourceOperator) patchToNewest(origin, updating *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	if updating.GetResourceVersion() != origin.GetResourceVersion() {
+		return nil, fmt.Errorf("origin resource version should be the same as updating resource version")
+	}
+
+	newest, err := ope.Resource(ope.gvr).Namespace(updating.GetNamespace()).Get(context.Background(), updating.GetName(),
+		v1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if updating.GetResourceVersion() != newest.GetResourceVersion() {
+		logrus.Infof("updating resource version %s, newest version %s", updating.GetResourceVersion(), newest.GetResourceVersion())
+	}
+
+	patchJson, err := jsondiff.Compare(origin, updating)
+	if err != nil {
+		return nil, err
+	}
+
+	patchBuffer, err := json.Marshal(patchJson)
+	if err != nil {
+		return nil, err
+	}
+
+	return patchResource(patchBuffer, newest)
+}
+
+func patchResource(patchBuffer []byte, resource *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	patch, err := jsonpatch.DecodePatch(patchBuffer)
+	if err != nil {
+		return nil, err
+	}
+
+	newestJson, err := resource.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	modified, err := patch.Apply(newestJson)
+	if err != nil {
+		return nil, err
+	}
+
+	appliedToResource := &unstructured.Unstructured{}
+
+	err = json.Unmarshal(modified, appliedToResource)
+	if err != nil {
+		return nil, err
+	}
+	return appliedToResource, nil
 }
 
 func createKubernetesAPIResponse(res kubeproxy.KubernetesAPIBase, resource []byte) *kubeproxy.Response {

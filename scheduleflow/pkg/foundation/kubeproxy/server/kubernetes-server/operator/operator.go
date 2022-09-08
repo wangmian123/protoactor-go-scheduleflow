@@ -78,6 +78,10 @@ func (ope *resourceOperator) operateResource(ctx actor.Context, env *actor.Messa
 		rep, err = ope.delete(m)
 	case *kubeproxy.Patch:
 		rep, err = ope.patch(m)
+	case *kubeproxy.PatchStatus:
+		rep, err = ope.patchStatus(m)
+	case *kubeproxy.Synchronize:
+		rep, err = ope.synchronize(m)
 	case *kubeproxy.Update:
 		rep, err = ope.update(m)
 	case *kubeproxy.UpdateStatus:

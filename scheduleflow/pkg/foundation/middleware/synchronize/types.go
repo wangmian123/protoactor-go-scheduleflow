@@ -49,6 +49,7 @@ const (
 	Ignore       MutatingAction = ""
 	Create                      = "Create"
 	Patch                       = "Patch"
+	PatchStatus                 = "PatchStatus"
 	Update                      = "Update"
 	UpdateStatus                = "UpdateStatus"
 	Synchronize                 = "Synchronize"
