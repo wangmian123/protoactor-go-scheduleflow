@@ -2,17 +2,28 @@ package informer
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
-
 	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
+	regexp "github.com/dlclark/regexp2"
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+var compiled *regexp.Regexp
+
+func init() {
+	var err error
+	compiled, err = regexp.Compile("\\{( *)\\}", regexp.None)
+	if err != nil {
+		logrus.Fatalf("can not compile {( *)}, due to %v", err)
+	}
+}
 
 type DynamicSubscribe struct {
 	Target          *actor.PID
@@ -232,5 +243,34 @@ func ConvertToResource[R any](res *unstructured.Unstructured) (*R, error) {
 
 	raw := new(R)
 	err = json.Unmarshal(buffer, raw)
-	return raw, err
+	if err != nil {
+		var trimErr error
+		buffer, trimErr = trimAllEmptyStructure(buffer)
+		if trimErr != nil {
+			return nil, fmt.Errorf("marshal error %v, trim error %v", err, trimErr)
+		}
+
+		raw = new(R)
+		err = json.Unmarshal(buffer, raw)
+		if err != nil {
+			return nil, fmt.Errorf("marshal error after trimming %v", err)
+		}
+	}
+	return raw, nil
+}
+
+func trimAllEmptyStructure(buffer []byte) ([]byte, error) {
+	converted := string(buffer)
+	for true {
+		matched, err := compiled.FindStringMatch(converted)
+		if err != nil {
+			return nil, err
+		}
+		if matched == nil {
+			break
+		}
+
+		converted = strings.Replace(converted, matched.String(), "null", -1)
+	}
+	return []byte(converted), nil
 }

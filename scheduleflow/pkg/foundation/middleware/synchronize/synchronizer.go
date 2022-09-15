@@ -236,7 +236,7 @@ func (sync *synchronizerPair) onSourceAdd(resource unstructured.Unstructured) {
 
 	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
-		logrus.Debugf("synchronizing target resource with error: %v", err)
+		logrus.Warningf("synchronizing target resource with error: %v", err)
 		return
 	}
 }
@@ -271,7 +271,7 @@ func (sync *synchronizerPair) onTargetAdd(resource unstructured.Unstructured) {
 
 	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
-		logrus.Debugf("synchronizing source resource with error: %v", err)
+		logrus.Warningf("synchronizing source resource with error: %v", err)
 		return
 	}
 }
@@ -301,9 +301,13 @@ func (sync *synchronizerPair) onSourceUpdate(oldRes, newRes unstructured.Unstruc
 		return
 	}
 
+	if mutatedTarget.OriginalResource == nil {
+		mutatedTarget.OriginalResource = target
+	}
+
 	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
-		logrus.Debugf("synchronizing target resource with error: %v", err)
+		logrus.Warningf("synchronizing target resource with error: %v", err)
 		return
 	}
 }
@@ -334,9 +338,13 @@ func (sync *synchronizerPair) onTargetUpdate(oldRes, newRes unstructured.Unstruc
 		return
 	}
 
+	if mutatedSource.OriginalResource == nil {
+		mutatedSource.OriginalResource = source
+	}
+
 	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
-		logrus.Debugf("synchronizing source resource with error: %v", err)
+		logrus.Warningf("synchronizing source resource with error: %v", err)
 		return
 	}
 }
@@ -364,6 +372,10 @@ func (sync *synchronizerPair) onSourceDelete(resource unstructured.Unstructured)
 		return
 	}
 
+	if mutatedTarget == nil {
+		return
+	}
+
 	if mutatedTarget.OriginalResource == nil {
 		mutatedTarget.OriginalResource = target
 	}
@@ -371,7 +383,7 @@ func (sync *synchronizerPair) onSourceDelete(resource unstructured.Unstructured)
 	if mutatedTarget != nil {
 		_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 		if err != nil {
-			logrus.Debugf("synchronizing target resource fail onTargetDelete due to %v", err)
+			logrus.Warningf("synchronizing target resource fail onTargetDelete due to %v", err)
 		}
 	}
 }
@@ -398,17 +410,17 @@ func (sync *synchronizerPair) onTargetDelete(resource unstructured.Unstructured)
 		return
 	}
 
-	if mutatedSource.OriginalResource == nil {
-		mutatedSource.OriginalResource = source
-	}
-
 	if mutatedSource == nil {
 		return
 	}
 
+	if mutatedSource.OriginalResource == nil {
+		mutatedSource.OriginalResource = source
+	}
+
 	updatedSource, err := sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
-		logrus.Debugf("synchronizing source resource fail onTargetDelete due to %v", err)
+		logrus.Warningf("synchronizing source resource fail onTargetDelete due to %v", err)
 		return
 	}
 

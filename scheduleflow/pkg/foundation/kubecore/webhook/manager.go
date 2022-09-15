@@ -43,7 +43,7 @@ func (m *webhookManager) Receive(ctx actor.Context) {
 		}
 	case *RegisterWebhook:
 		m.server.Register(msg.Path, &webhook.Admission{Handler: msg.Handler})
-		logrus.Infof("%s webhook %s has been registered", logPrefix, msg.Path)
+		logrus.Infof("%s webhook %s registers success", logPrefix, msg.Path)
 		ctx.Send(ctx.Sender(), &RegisterWebhookResult{})
 	}
 }

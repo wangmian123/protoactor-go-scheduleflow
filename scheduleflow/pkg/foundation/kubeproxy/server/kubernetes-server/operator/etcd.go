@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
-	jsonpatch "github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
 	"github.com/wI2L/jsondiff"
@@ -191,7 +191,7 @@ func (ope *resourceOperator) update(info *kubeproxy.Update) (*kubeproxy.Response
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 	if info.Resource == nil {
-		err := fmt.Errorf("patch resource is nil")
+		err := fmt.Errorf("update resource is nil")
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 
@@ -243,7 +243,7 @@ func (ope *resourceOperator) updateStatus(info *kubeproxy.UpdateStatus) (*kubepr
 	}
 
 	if info.Resource == nil {
-		err := fmt.Errorf("patch resource is nil")
+		err := fmt.Errorf("updateStatus resource is nil")
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 
@@ -306,6 +306,39 @@ func (ope *resourceOperator) patch(info *kubeproxy.Patch) (*kubeproxy.Response, 
 	}
 	resource, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
 		Patch(context.Background(), info.Metadata.Name, patchType, info.Resource, *opt, info.SubResources...)
+
+	if err != nil {
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			newest, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
+				Get(context.Background(), info.Metadata.Name, v1.GetOptions{})
+			if err != nil {
+				return err
+			}
+
+			var patched *unstructured.Unstructured
+
+			if patchType == types.JSONPatchType {
+				patched, err = patchResource(info.Resource, newest)
+				if err != nil {
+					return err
+				}
+				patched.SetResourceVersion(newest.GetResourceVersion())
+			}
+
+			patchedJson, err := json.Marshal(patched)
+			if err != nil {
+				return err
+			}
+
+			resource, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
+				Patch(context.Background(), info.Metadata.Name, types.MergePatchType, patchedJson, *opt, info.SubResources...)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
 	if err != nil {
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
@@ -330,18 +363,11 @@ func (ope *resourceOperator) patchStatus(info *kubeproxy.PatchStatus) (*kubeprox
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
 
-	newest, err := ope.Resource(ope.gvr).Namespace(info.GetMetadata().Namespace).Get(context.Background(),
-		info.GetMetadata().Name, v1.GetOptions{})
+	var modified *unstructured.Unstructured
 
-	modified, err := patchResource(info.Resource, newest)
-	if err != nil {
-		return createKubernetesAPIErrorResponse(info, err), nil
-	}
-	modified.SetResourceVersion(newest.GetResourceVersion())
-
-	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		newest, err = ope.Resource(ope.gvr).Namespace(modified.GetNamespace()).
-			Get(context.Background(), modified.GetName(), v1.GetOptions{})
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		newest, err := ope.Resource(ope.gvr).Namespace(info.GetMetadata().Namespace).
+			Get(context.Background(), info.GetMetadata().Name, v1.GetOptions{})
 		if err != nil {
 			return err
 		}
@@ -392,27 +418,36 @@ func (ope *resourceOperator) synchronize(info *kubeproxy.Synchronize) (*kubeprox
 	updated := &unstructured.Unstructured{}
 
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		patchJson, err := jsondiff.Compare(origin, synchronizing)
+		patchBuffer, err := json.Marshal(synchronizing)
 		if err != nil {
 			return err
 		}
 
-		patchBuffer, err := json.Marshal(patchJson)
+		// The Kubernetes API server will not recursively create nested objects for a JSON patch input.
+		// JSON Patch specification in RFC 6902, section A.12
+		// https://www.rfc-editor.org/rfc/rfc6902#appendix-A.12
+		resource, err := ope.Resource(ope.gvr).Namespace(origin.GetNamespace()).
+			Patch(context.Background(), origin.GetName(), types.MergePatchType, patchBuffer, v1.PatchOptions{}, info.SubResources...)
 		if err != nil {
 			return err
 		}
 
-		resource, err := ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
-			Patch(context.Background(), info.Metadata.Name, types.JSONPatchType, patchBuffer, v1.PatchOptions{}, info.SubResources...)
+		patchJsons, err := jsondiff.Compare(origin, synchronizing)
 		if err != nil {
 			return err
 		}
+
+		patchBuffer, err = json.Marshal(patchJsons)
+		if err != nil {
+			return err
+		}
+
 		modified, err := patchResource(patchBuffer, resource)
 		if err != nil {
 			return err
 		}
 		modified.SetResourceVersion(resource.GetResourceVersion())
-		updated, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).UpdateStatus(context.Background(), modified, v1.UpdateOptions{})
+		updated, err = ope.Resource(ope.gvr).Namespace(origin.GetNamespace()).UpdateStatus(context.Background(), modified, v1.UpdateOptions{})
 		if err != nil {
 			return err
 		}
@@ -479,7 +514,10 @@ func patchResource(patchBuffer []byte, resource *unstructured.Unstructured) (*un
 		return nil, err
 	}
 
-	modified, err := patch.Apply(newestJson)
+	opt := jsonpatch.NewApplyOptions()
+	opt.EnsurePathExistsOnAdd = true
+	opt.AllowMissingPathOnRemove = true
+	modified, err := patch.ApplyWithOptions(newestJson, opt)
 	if err != nil {
 		return nil, err
 	}

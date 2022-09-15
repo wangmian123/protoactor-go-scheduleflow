@@ -29,6 +29,8 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2 v1.7.0
+	github.com/evanphx/json-patch/v5 v5.6.0
 	github.com/facebookgo/inject v0.0.0-20180706035515-f23751cae28b
 	github.com/go-zookeeper/zk v1.0.2
 	github.com/golang/mock v1.5.0
