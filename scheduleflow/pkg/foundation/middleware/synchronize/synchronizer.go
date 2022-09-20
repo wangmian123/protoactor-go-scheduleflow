@@ -252,10 +252,10 @@ func (sync *synchronizerPair) onTargetAdd(resource unstructured.Unstructured) {
 
 	var mutatedSource *DynamicMutatedResult
 	if err != nil {
-		mutatedSource, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), nil)
+		mutatedSource, err = as.SynchronizeSource().SynchronizeAddedResource(resource.DeepCopy(), nil)
 	} else {
 		defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
-		mutatedSource, err = as.SynchronizeTarget().SynchronizeAddedResource(resource.DeepCopy(), source.DeepCopy())
+		mutatedSource, err = as.SynchronizeSource().SynchronizeAddedResource(resource.DeepCopy(), source.DeepCopy())
 	}
 
 	if err != nil {
@@ -404,7 +404,7 @@ func (sync *synchronizerPair) onTargetDelete(resource unstructured.Unstructured)
 	defer sync.source.kubernetesAPI.Namespace(as.GetNamespace()).UnlockResource(context.Background(), as.GetName())
 
 	var mutatedSource *DynamicMutatedResult
-	mutatedSource, err = as.SynchronizeTarget().SynchronizeDeletedResource(resource.DeepCopy(), source.DeepCopy())
+	mutatedSource, err = as.SynchronizeSource().SynchronizeDeletedResource(resource.DeepCopy(), source.DeepCopy())
 	if err != nil {
 		logrus.Errorf("permite deleting source resource fail due to %v", err)
 		return

@@ -44,6 +44,9 @@ func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response
 		opt = &v1.CreateOptions{}
 	}
 
+	// resolve resourceVersion should not be set on objects to be created
+	resource.SetResourceVersion("")
+
 	resource, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
 		Create(context.Background(), resource, *opt, info.SubResources...)
 	if err != nil {
