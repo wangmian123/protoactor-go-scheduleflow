@@ -39,7 +39,7 @@ func (m *webhookManager) Receive(ctx actor.Context) {
 	case *actor.Started:
 		err := m.initialWebhook(ctx)
 		if err != nil {
-			logrus.Errorf("%s initial webhook with error %v", logPrefix, err)
+			logrus.Fatalf("%s initial webhook with error %v", logPrefix, err)
 		}
 	case *RegisterWebhook:
 		m.server.Register(msg.Path, &webhook.Admission{Handler: msg.Handler})
