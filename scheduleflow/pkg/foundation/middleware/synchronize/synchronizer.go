@@ -130,8 +130,7 @@ func (sync *synchronizerPair) AddSynchronizeAssignments(op *Operation, tasks ...
 	}
 	if op == nil {
 		op = &Operation{
-			MappingNamespace: "",
-			MappingNames:     make(map[string]string),
+			MappingNames: make(map[string]string),
 		}
 	}
 
@@ -184,11 +183,11 @@ func (sync *synchronizerPair) addSynchronizeAssignment(op *Operation, task Dynam
 }
 
 func (sync *synchronizerPair) generateMappingAssignmentInfo(op *Operation, task DynamicAssignment) mappingAssignmentInfo {
-	namespace := task.GetNamespace()
-
-	targetNamespace := namespace
-	if op.MappingNamespace != AllNamespace {
-		targetNamespace = op.MappingNamespace
+	var targetNamespace string
+	if op.MappingNamespace != nil {
+		targetNamespace = *op.MappingNamespace
+	} else {
+		targetNamespace = task.GetNamespace()
 	}
 
 	targetName := task.GetName()

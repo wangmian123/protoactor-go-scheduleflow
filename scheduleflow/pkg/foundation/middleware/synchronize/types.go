@@ -84,7 +84,7 @@ type GenericAssignment[S, T any] interface {
 }
 
 type Operation struct {
-	MappingNamespace string
+	MappingNamespace *string
 	MappingNames     map[string]string
 }
 
