@@ -18,12 +18,14 @@ import (
 type builder struct {
 	ctx  actor.Context
 	apis cmap.ConcurrentMap[ResourceInterface]
+	opts []Option
 }
 
-func NewKubernetesAPIBuilder(ctx actor.Context) Builder {
+func NewKubernetesAPIBuilder(ctx actor.Context, opts ...Option) Builder {
 	return &builder{
 		ctx:  ctx,
 		apis: cmap.New[ResourceInterface](),
+		opts: opts,
 	}
 }
 
@@ -34,7 +36,7 @@ func (b *builder) GetResourceInterface(target *actor.PID) ResourceInterface {
 
 	api, ok := b.apis.Get(utils.FormActorKey(target))
 	if !ok {
-		api = NewKubernetesAPI(target, b.ctx)
+		api = NewKubernetesAPI(target, b.ctx, b.opts...)
 		b.apis.Set(utils.FormActorKey(target), api)
 	}
 
@@ -46,26 +48,22 @@ func (b *builder) ListResourceInterface() map[string]ResourceInterface {
 }
 
 type kubernetesAPI struct {
-	ctx       actor.Context
-	namespace string
-	target    *actor.PID
+	ctx    actor.Context
+	target *actor.PID
+
+	opts []Option
 }
 
 func NewKubernetesAPI(target *actor.PID, ctx actor.Context, opts ...Option) ResourceInterface {
-	cfg := &config{}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
 	return &kubernetesAPI{
 		target: target,
 		ctx:    ctx,
+		opts:   opts,
 	}
 }
 
-func (k *kubernetesAPI) Resource(resource schema.GroupVersionResource,
-) NamespaceableResourceInterface[unstructured.Unstructured] {
-	operator := NewOperator[unstructured.Unstructured](k.ctx, k.target, &resource)
+func (k *kubernetesAPI) Resource(resource schema.GroupVersionResource) NamespaceableResourceInterface[unstructured.Unstructured] {
+	operator := NewOperator[unstructured.Unstructured](k.ctx, k.target, &resource, k.opts...)
 	return operator
 }
 

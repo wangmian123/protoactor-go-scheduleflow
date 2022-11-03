@@ -13,10 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const timeout = 60 * time.Second
+const OperatorDefaultTimeOut = 600 * time.Second
 
 type operatorConfig struct {
-	timeout time.Duration
+	timeout *time.Duration
 }
 
 type middlewareConfig struct {
@@ -33,7 +33,7 @@ type Option func(*config)
 
 func WithDefaultTimeout(duration time.Duration) Option {
 	return func(c *config) {
-		c.timeout = duration
+		c.timeout = &duration
 	}
 }
 

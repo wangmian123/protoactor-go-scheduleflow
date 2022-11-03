@@ -26,9 +26,13 @@ type OperateResource[R any] struct {
 func NewOperator[R any](ctx actor.Context, target *actor.PID, gvr *schema.GroupVersionResource,
 	opts ...Option) *OperateResource[R] {
 	cfg := config{}
-	cfg.timeout = timeout
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+
+	if cfg.timeout == nil {
+		timeout := OperatorDefaultTimeOut
+		cfg.timeout = &timeout
 	}
 
 	return &OperateResource[R]{
@@ -36,7 +40,7 @@ func NewOperator[R any](ctx actor.Context, target *actor.PID, gvr *schema.GroupV
 		target:    target,
 		gvr:       gvr,
 		namespace: metav1.NamespaceAll,
-		timeout:   cfg.timeout,
+		timeout:   *cfg.timeout,
 	}
 }
 
