@@ -11,7 +11,7 @@ import (
 const apiServer = "KubernetesAPIServer"
 
 func NewAPIClientBuilderMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
-	cfg := &config{}
+	cfg := newDefaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -34,7 +34,7 @@ func NewAPIClientBuilderMiddlewareProducer(opts ...Option) actor.ReceiverMiddlew
 }
 
 func NewAPIClientMiddlewareProducer(target *actor.PID, opts ...Option) actor.ReceiverMiddleware {
-	cfg := &config{}
+	cfg := newDefaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -52,19 +52,46 @@ func NewAPIClientMiddlewareProducer(target *actor.PID, opts ...Option) actor.Rec
 	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
 }
 
+func NewLocalAPIClientMiddlewareProducer(opts ...Option) actor.ReceiverMiddleware {
+	cfg := newDefaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
+		ctx := c.(actor.Context)
+		api := NewKubernetesAPI(GetAPI(ctx.ActorSystem().Address()), ctx)
+		err := utils.InjectActor(c, utils.NewInjectorItem(cfg.tagName, api))
+		if err != nil {
+			logrus.Error(err)
+		}
+		return false
+	}
+
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(started).ProduceReceiverMiddleware()
+}
+
 func GetAPI(server string) *actor.PID {
 	return actor.NewPID(server, apiServer)
 }
 
-func NewServerMiddlewareProducer(kubeconfig *rest.Config) actor.ReceiverMiddleware {
+func NewServerMiddlewareProducer(kubeconfig *rest.Config, opts ...Option) actor.ReceiverMiddleware {
+	cfg := newDefaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	started := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
+		kubeconfig.QPS = cfg.clientQPS
+		kubeconfig.Burst = cfg.burst
 		apiPID := actor.NewPID(c.Self().Address, apiServer)
 		_, ok := c.ActorSystem().ProcessRegistry.Get(apiPID)
 		if ok {
 			return false
 		}
 
-		_, err := c.ActorSystem().Root.SpawnNamed(kubernetes_server.New(kubeconfig), apiServer)
+		_, err := c.ActorSystem().Root.SpawnNamed(kubernetes_server.New(kubeconfig, c.ActorSystem(),
+			cfg.creationPoolSize, cfg.updatingPoolSize), apiServer)
 		if err != nil {
 			logrus.Fatalf("can not initial kubernetes API server due to %v", err)
 		}

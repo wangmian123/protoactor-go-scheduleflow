@@ -22,18 +22,16 @@ type kubernetesAPI struct {
 	actorinfo.ActorBaseInformation `inject:""`
 	informer.DynamicInformer       `inject:""`
 
-	Manager processor.Manager `inject:""`
-
-	dynamicClient   dynamic.Interface
+	Manager         processor.Manager `inject:""`
 	operatorBuilder operator.ServerOperatorBuilder
 }
 
-func New(cfg *rest.Config) *actor.Props {
+func New(cfg *rest.Config, actorSystem *actor.ActorSystem, creationPoolSize, updatingPoolSize int) *actor.Props {
 	client := dynamic.NewForConfigOrDie(cfg)
 	return actor.PropsFromProducer(func() actor.Actor {
-		return &kubernetesAPI{
-			dynamicClient: client,
-		}
+		api := &kubernetesAPI{}
+		api.operatorBuilder = operator.NewOperatorBuilder(api, actorSystem, client, creationPoolSize, updatingPoolSize)
+		return api
 	}, actor.WithReceiverMiddleware(
 		actorinfo.NewMiddlewareProducer(),
 		processor.NewMiddlewareProducer(),
@@ -45,7 +43,6 @@ func (api *kubernetesAPI) Receive(ctx actor.Context) {
 	switch msg := ctx.Message().(type) {
 	case *actor.Started:
 		logrus.Infof("=======%s start=======", logPrefix)
-		api.operatorBuilder = operator.NewOperatorBuilder(api.DynamicInformer, api.ActorSystem(), api.dynamicClient)
 	case kubeproxy.KubernetesAPIBase:
 		_, ok := api.Manager.GetProcessor(msg.GetGVR().String())
 		if ok {

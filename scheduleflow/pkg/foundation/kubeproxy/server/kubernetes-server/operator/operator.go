@@ -7,10 +7,16 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	cmap "github.com/orcaman/concurrent-map"
+	ants "github.com/panjf2000/ants/v2"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+)
+
+const (
+	defaultCreationPool = 20
+	defaultUpdatingPool = 100
 )
 
 type resourceOperator struct {
@@ -19,13 +25,35 @@ type resourceOperator struct {
 	store informer.UnstructuredOperableStore
 
 	updateLocker cmap.ConcurrentMap[*resourceCond]
+	creationPool *ants.Pool
+	updatingPool *ants.Pool
 }
 
-func newOperatorAPI(gvr *kubeproxy.GroupVersionResource, client dynamic.Interface) *resourceOperator {
+func newOperatorAPI(gvr *kubeproxy.GroupVersionResource, client dynamic.Interface, creationPool, updatingPool int) *resourceOperator {
+	if creationPool == 0 {
+		creationPool = defaultCreationPool
+	}
+
+	if updatingPool == 0 {
+		updatingPool = defaultUpdatingPool
+	}
+
+	cPool, err := ants.NewPool(creationPool)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	uPool, err := ants.NewPool(creationPool)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
 	return &resourceOperator{
 		gvr:          kubeproxy.ConvertGVR(gvr.DeepCopy()),
 		updateLocker: cmap.New[*resourceCond](),
 		Interface:    client,
+		creationPool: cPool,
+		updatingPool: uPool,
 	}
 }
 
@@ -55,11 +83,43 @@ func (ope *resourceOperator) Process(ctx actor.Context, env *actor.MessageEnvelo
 			Message: env.Message,
 			Sender:  env.Sender,
 		}
-		go ope.operateResource(ctx, envelop)
-		return nil, nil
+		return ope.rateLimitingOperatingResource(ctx, envelop)
 	default:
 		return nil, fmt.Errorf("operate resource type error: expect kubeproxy.KubernetesAPIBase, but get %T", env.Message)
 	}
+}
+
+func (ope *resourceOperator) rateLimitingOperatingResource(ctx actor.Context, env *actor.MessageEnvelope) (interface{}, error) {
+	switch env.Message.(type) {
+	case *kubeproxy.Create:
+		return ope.limitingOperate(ctx, env, ope.creationPool)
+	case *kubeproxy.PatchStatus, *kubeproxy.Synchronize, *kubeproxy.Update, *kubeproxy.UpdateStatus:
+		return ope.limitingOperate(ctx, env, ope.updatingPool)
+	}
+
+	go ope.operateResource(ctx, env)
+	return nil, nil
+}
+
+func (ope *resourceOperator) limitingOperate(ctx actor.Context, env *actor.MessageEnvelope, pool *ants.Pool) (interface{}, error) {
+	if pool.IsClosed() {
+		return nil, fmt.Errorf("resource operator %v can not create resource due to creation pool close ", ope.gvr)
+	}
+
+	info, ok := env.Message.(kubeproxy.KubernetesAPIBase)
+	if !ok {
+		return nil, fmt.Errorf("message expected kubeproxy.KubernetesAPIBase, but get %T", env.Message)
+	}
+
+	if pool.Free() == 0 {
+		return createKubernetesAPIErrorResponse(info, fmt.Errorf("too many request, try later")), nil
+	}
+
+	err := pool.Submit(func() { ope.operateResource(ctx, env) })
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func (ope *resourceOperator) operateResource(ctx actor.Context, env *actor.MessageEnvelope) {

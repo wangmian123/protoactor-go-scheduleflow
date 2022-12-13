@@ -338,7 +338,7 @@ func (sync *synchronizerPair) onTargetUpdate(oldRes, newRes unstructured.Unstruc
 	}
 
 	if mutatedSource.OriginalResource == nil {
-		mutatedSource.OriginalResource = source
+		mutatedSource.OriginalResource = source.DeepCopy()
 	}
 
 	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)

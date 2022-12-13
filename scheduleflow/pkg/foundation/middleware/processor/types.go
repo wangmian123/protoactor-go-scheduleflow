@@ -22,5 +22,6 @@ type ActorProcessorWithInitial interface {
 type Manager interface {
 	ActorProcessorWithInitial
 	AddProcessor(processors ...ActorProcessor) error
+	AddInitialProcessor(processors ...ActorProcessorWithInitial) error
 	GetProcessor(name string) (ActorProcessor, bool)
 }

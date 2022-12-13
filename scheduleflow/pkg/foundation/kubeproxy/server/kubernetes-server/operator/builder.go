@@ -15,18 +15,24 @@ type operatorBuilder struct {
 	informer.DynamicInformer
 	dynamic.Interface
 	localInformer *actor.PID
+
+	creationPoolSize int
+	updatingPoolSize int
 }
 
-func NewOperatorBuilder(dynamicInformer informer.DynamicInformer, sys *actor.ActorSystem, client dynamic.Interface) ServerOperatorBuilder {
+func NewOperatorBuilder(dynamicInformer informer.DynamicInformer, sys *actor.ActorSystem, client dynamic.Interface,
+	creationPoolSize, updatingPoolSize int) ServerOperatorBuilder {
 	return &operatorBuilder{
-		DynamicInformer: dynamicInformer,
-		localInformer:   informer.GetLocalClient(sys),
-		Interface:       client,
+		DynamicInformer:  dynamicInformer,
+		localInformer:    informer.GetLocalClient(sys),
+		Interface:        client,
+		creationPoolSize: creationPoolSize,
+		updatingPoolSize: updatingPoolSize,
 	}
 }
 
 func (builder *operatorBuilder) CreateResourceOperator(resource *kubeproxy.GroupVersionResource) (processor.ActorProcessor, error) {
-	operator := newOperatorAPI(resource, builder.Interface)
+	operator := newOperatorAPI(resource, builder.Interface, builder.creationPoolSize, builder.updatingPoolSize)
 	operatableStores, err := builder.SetResourceHandler(informer.NewDynamicSubscribe(builder.localInformer,
 		kubeproxy.ConvertGVR(resource.DeepCopy()), informer.WithDynamicInformerHandler(&utils.HandlerFunc{
 			Creating: operator.informResourceAdd,

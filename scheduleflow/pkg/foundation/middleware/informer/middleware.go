@@ -21,6 +21,9 @@ const (
 	timeout        = 30 * time.Second
 	informerServer = "InformerServer"
 	informerClient = "InformerClient"
+
+	DefaultQPS   = 100
+	DefaultBurst = 500
 )
 
 // middlewareProducer
@@ -132,7 +135,14 @@ func GetLocalClient(sys *actor.ActorSystem) *actor.PID {
 	return actor.NewPID(sys.Address(), informerClient)
 }
 
-func NewServerMiddlewareProducer(kubeconfig *rest.Config, syncInterval time.Duration) actor.ReceiverMiddleware {
+func NewServerMiddlewareProducer(kubeconfig *rest.Config, syncInterval time.Duration, opts ...Option) actor.ReceiverMiddleware {
+	cfg := newConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	kubeconfig.Burst = cfg.burst
+	kubeconfig.QPS = cfg.qps
 	serverProps := informer_server.New(kubeconfig, informer_server.WithSyncInterval(syncInterval))
 	started := func(rCtx actor.ReceiverContext, env *actor.MessageEnvelope) bool {
 		informerPid := actor.NewPID(rCtx.Self().Address, informerServer)

@@ -98,7 +98,23 @@ func WithUpdateInterval(interval time.Duration) Option {
 type config struct {
 	SubscribeOption
 	storeConfig
+	serverConfig
 	tagName string
+}
+
+func newConfig() *config {
+	return &config{
+		serverConfig: serverConfig{
+			qps:   DefaultQPS,
+			burst: DefaultBurst,
+		},
+		tagName: "",
+	}
+}
+
+type serverConfig struct {
+	qps   float32
+	burst int
 }
 
 type storeConfig struct {

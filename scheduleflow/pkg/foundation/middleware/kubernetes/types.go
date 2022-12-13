@@ -13,7 +13,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const OperatorDefaultTimeOut = 600 * time.Second
+const (
+	OperatorDefaultTimeOut = 600 * time.Second
+	DefaultQPS             = 100
+	DefaultBurst           = 500
+	DefaultCreationPool    = 200
+	DefaultUpdatingPool    = 200
+)
 
 type operatorConfig struct {
 	timeout *time.Duration
@@ -24,12 +30,48 @@ type middlewareConfig struct {
 	tagName string
 }
 
+type serverConfig struct {
+	creationPoolSize int
+	updatingPoolSize int
+	clientQPS        float32
+	burst            int
+}
+
 type config struct {
 	operatorConfig
 	middlewareConfig
+	serverConfig
+}
+
+func newDefaultConfig() *config {
+	timeout := OperatorDefaultTimeOut
+	return &config{
+		operatorConfig: operatorConfig{
+			timeout: &timeout,
+		},
+		middlewareConfig: middlewareConfig{},
+		serverConfig: serverConfig{
+			creationPoolSize: DefaultCreationPool,
+			updatingPoolSize: DefaultUpdatingPool,
+			clientQPS:        DefaultQPS,
+			burst:            DefaultBurst,
+		},
+	}
 }
 
 type Option func(*config)
+
+func WithKubernetesCreationLimits(size int) Option {
+	return func(c *config) {
+		c.creationPoolSize = size
+	}
+}
+
+func WithKubernetesUpdatingLimits(size int) Option {
+	return func(c *config) {
+		c.updatingPoolSize = size
+	}
+}
 
 func WithDefaultTimeout(duration time.Duration) Option {
 	return func(c *config) {
@@ -46,6 +88,18 @@ func WithContextAppointment(ctx actor.Context) Option {
 func WithTagName(name string) Option {
 	return func(c *config) {
 		c.tagName = name
+	}
+}
+
+func WithKubernetesClientQPS(qps float32) Option {
+	return func(c *config) {
+		c.clientQPS = qps
+	}
+}
+
+func WithKubernetesClientBurst(burst int) Option {
+	return func(c *config) {
+		c.burst = burst
 	}
 }
 
@@ -79,10 +133,6 @@ type PodsGetter interface {
 type NodesGetter interface {
 	Nodes() NamespaceableResourceInterface[v1.Node]
 }
-
-//type EventsGetter interface{
-//	Events()NamespaceableResourceInterface[v1.Event]
-//}
 
 type NamespaceableResourceInterface[R any] interface {
 	Namespace(string) ResourceOperator[R]
