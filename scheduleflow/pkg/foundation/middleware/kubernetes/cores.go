@@ -8,7 +8,7 @@ import (
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	cmap "github.com/orcaman/concurrent-map"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,6 +33,8 @@ func (b *builder) GetResourceInterface(target *actor.PID) ResourceInterface {
 	if target == nil {
 		return nil
 	}
+
+	target = GetAPI(target.Address)
 
 	api, ok := b.apis.Get(utils.FormActorKey(target))
 	if !ok {

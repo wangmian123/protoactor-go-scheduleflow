@@ -4,16 +4,14 @@ import (
 	"fmt"
 	"time"
 
-	informer_server "github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/informer-server"
-	"k8s.io/client-go/rest"
-
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
-
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
+	informer_server "github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/informer-server"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	"github.com/sirupsen/logrus"
+	"k8s.io/client-go/rest"
 )
 
 const (

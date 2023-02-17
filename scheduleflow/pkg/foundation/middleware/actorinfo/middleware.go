@@ -4,9 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
-
 	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	"github.com/sirupsen/logrus"
 )
 

@@ -293,11 +293,26 @@ func (r *OperateResource[R]) requestUntilTimeout(ctx context.Context, message in
 }
 
 func requestUntilTimeout[R any](ctx context.Context, future *actor.Future) (*R, error) {
-	result, err := future.Result()
-	if err != nil {
-		return nil, err
-	}
+	var result any
+	var err error
+	resultDone := make(chan struct{})
 
+	go func() {
+		result, err = future.Result()
+		resultDone <- struct{}{}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("kubernetes operator request time out")
+		case <-resultDone:
+			return getResult[R](result, err)
+		}
+	}
+}
+
+func getResult[R any](result any, err error) (*R, error) {
 	resp, ok := result.(*kubeproxy.Response)
 	if !ok {
 		return nil, fmt.Errorf("expected type *kubeproxy.Response, but get %T", result)

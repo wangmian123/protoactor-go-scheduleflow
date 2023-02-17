@@ -1,47 +1,30 @@
 package synchronize
 
 import (
+	"fmt"
+
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/kubernetes"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/synchronize/coresync"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-const (
-	AllNamespace = ""
-)
+const ClusterLabel = "cluster.scheduleflow.io"
 
 type (
-	DynamicSynchronizer    = GenericSynchronizer[unstructured.Unstructured, unstructured.Unstructured]
-	DynamicMutatedResult   = MutateResourceResult[unstructured.Unstructured]
-	DynamicAssignment      = GenericAssignment[unstructured.Unstructured, unstructured.Unstructured]
-	DynamicResourceMutator = ResourceMutator[unstructured.Unstructured, unstructured.Unstructured]
+	DynamicLabelObject       = LabeledObject[unstructured.Unstructured]
+	DynamicResourceUpdater   = coresync.ResourceUpdater[LabeledObject[unstructured.Unstructured]]
+	DynamicDownstreamTrigger = coresync.DownstreamTrigger[DynamicLabelObject, DynamicLabelObject]
+	DynamicUpstreamTrigger   = coresync.UpstreamTrigger[DynamicLabelObject, DynamicLabelObject]
+	DynamicInformerConvertor = LabeledInformerConvertor[unstructured.Unstructured]
+	DynamicSynchronizer      = GenericSynchronizer[unstructured.Unstructured, unstructured.Unstructured]
+	DynamicMutatedResult     = MutateResourceResult[unstructured.Unstructured]
+	DynamicAssignment        = GenericAssignment[unstructured.Unstructured, unstructured.Unstructured]
+	DynamicResourceMutator   = ResourceMutator[unstructured.Unstructured, unstructured.Unstructured]
 )
-
-// SynchronizerFactory builds synchronizerPair with the specific clusters and resources.
-type SynchronizerFactory interface {
-	CreateSynchronizer(source, target SynchronizerObject, opts ...Option) (DynamicSynchronizer, error)
-}
-
-type DynamicSynchronizerBuilder interface {
-	GetSourceInformerHandler() informer.DynamicEventHandler
-	GetTargetInformerHandler() informer.DynamicEventHandler
-	SetSourceResourceStore(store informer.UnstructuredStore) DynamicSynchronizerBuilder
-	SetTargetResourceStore(store informer.UnstructuredStore) DynamicSynchronizerBuilder
-
-	CreateSynchronizer() DynamicSynchronizer
-}
-
-// GenericSynchronizer manages synchronizing GenericAssignment, and assignment coexistence with
-// associated source resource, which means if source resource deleted, GenericAssignment will be
-// deleted.
-type GenericSynchronizer[S, T any] interface {
-	GetSynchronizeAssignment(namespace, name string) (GenericAssignment[S, T], bool)
-	RemoveSynchronizeAssignment(namespace, name string)
-	AddSynchronizeAssignments(op *Operation, tasks ...GenericAssignment[S, T]) error
-}
 
 type MutatingAction string
 
@@ -60,27 +43,6 @@ type MutateResourceResult[R any] struct {
 	Action           MutatingAction
 	MutatedResource  *R
 	OriginalResource *R
-}
-
-type ResourceMutator[S, T any] interface {
-	// SynchronizeAddedResource calls when resource is adding, then synchronizing pair resource
-	// in terms of mutated resource in *MutateResourceResult[T].MutatedResource.
-	SynchronizeAddedResource(added *S, todo *T) (*MutateResourceResult[T], error)
-	// SynchronizeUpdatedResource calls when resource is updating, then synchronizing pair resource
-	// in terms of mutated resource in *MutateResourceResult[T].MutatedResource.
-	SynchronizeUpdatedResource(updatedOld, updatedNew *S, todo *T) (*MutateResourceResult[T], error)
-	// SynchronizeDeletedResource calls when resource is deleting, then synchronizing pair resource
-	// in terms of mutated resource in *MutateResourceResult[T].MutatedResource.
-	SynchronizeDeletedResource(deleted *S, todo *T) (*MutateResourceResult[T], error)
-}
-
-type GenericAssignment[S, T any] interface {
-	// GetName returns assignment resource name .
-	GetName() string
-	// GetNamespace returns assignment resource namespace.
-	GetNamespace() string
-	SynchronizeTarget() ResourceMutator[S, T]
-	SynchronizeSource() ResourceMutator[T, S]
 }
 
 type Operation struct {
@@ -204,4 +166,39 @@ func ConvertMutateResult[R, T any](res *MutateResourceResult[R]) (*MutateResourc
 	}
 
 	return ret, nil
+}
+
+type LabeledObject[T any] struct {
+	Label    map[string]string
+	Resource *T
+}
+
+type LabeledInformerConvertor[T any] interface {
+	CreateLabeledInformer() coresync.Informer[LabeledObject[T]]
+	CreateDynamicEventHandler() informer.DynamicEventHandler
+}
+
+type ObjectLabeler[T any] interface {
+	LabelWhenResourceAdd(resource *T) map[string]string
+	LabelWhenResourceUpdate(oldResource, newResource *T) (map[string]string, map[string]string)
+	LabelWhenResourceDelete(resource *T) map[string]string
+}
+
+type ResourceGetter[T any] interface {
+	Get(target *T) (*T, bool)
+	List() []*T
+}
+
+type Cluster struct {
+	Address string
+	Name    string
+}
+
+func (c *Cluster) LabelCluster() string {
+	return c.Address
+}
+
+func formClusterResourceKey(clusterLabel, namespace, name string) string {
+	format := "%s/%s/%s/%s"
+	return fmt.Sprintf(format, ClusterLabel, clusterLabel, namespace, name)
 }

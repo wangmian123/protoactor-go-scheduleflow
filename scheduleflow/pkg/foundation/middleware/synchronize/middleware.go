@@ -21,3 +21,17 @@ func NewSynchronizerFactoryMiddlewareProducer() actor.ReceiverMiddleware {
 	}
 	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(onStart).ProduceReceiverMiddleware()
 }
+
+func NewRetryableSynchronizerMiddleware() actor.ReceiverMiddleware {
+	onStart := func(c actor.ReceiverContext, envelope *actor.MessageEnvelope) bool {
+		ctx := c.(actor.Context)
+		dyInformer := informer.NewDynamicInformer(c.ActorSystem(), informer.GetLocalClient(c.ActorSystem()))
+		fac := NewRetryableFactory(dyInformer, kubernetes.NewKubernetesAPIBuilder(ctx))
+		err := utils.InjectActor(c, utils.NewInjectorItem("", fac))
+		if err != nil {
+			logrus.Error(err)
+		}
+		return false
+	}
+	return utils.NewReceiverMiddlewareBuilder().BuildOnStarted(onStart).ProduceReceiverMiddleware()
+}

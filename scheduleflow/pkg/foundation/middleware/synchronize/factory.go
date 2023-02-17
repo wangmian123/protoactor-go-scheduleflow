@@ -18,26 +18,28 @@ const pair = 2
 type Option func(option *synchronizerOption)
 
 type synchronizerOption struct {
-	updateSourceInterval time.Duration
-	updateTargetInterval time.Duration
+	minimumSourceInterval time.Duration
+	minimumTargetInterval time.Duration
+	maximumSourceInterval time.Duration
+	maximumTargetInterval time.Duration
 }
 
 func newOption() *synchronizerOption {
 	return &synchronizerOption{
-		updateSourceInterval: synchronizeInterval,
-		updateTargetInterval: synchronizeInterval,
+		minimumSourceInterval: synchronizeInterval,
+		minimumTargetInterval: synchronizeInterval,
 	}
 }
 
 func WithSyncSourceInterval(interval time.Duration) Option {
 	return func(option *synchronizerOption) {
-		option.updateSourceInterval = interval
+		option.minimumSourceInterval = interval
 	}
 }
 
 func WithSyncTargetInterval(interval time.Duration) Option {
 	return func(option *synchronizerOption) {
-		option.updateTargetInterval = interval
+		option.minimumTargetInterval = interval
 	}
 }
 
@@ -56,17 +58,12 @@ type factory struct {
 	synchronizerMap clusterSelector
 }
 
-func (fac *factory) GetSynchronizer(source, target SynchronizerObject) (DynamicSynchronizer, bool) {
-	key := fmt.Sprintf("%s-%s", utils.FormActorKey(source.ClusterInformer), utils.FormActorKey(target.ClusterInformer))
-	cluster, ok := fac.synchronizerMap.Get(key)
-	if !ok {
-		return nil, false
+func NewFactory(dyInformer informer.DynamicInformer, k8sBuilder kubernetes.Builder) SynchronizerFactory {
+	return &factory{
+		DynamicInformer: dyInformer,
+		Builder:         k8sBuilder,
+		synchronizerMap: clusterSelector{cmap.New[resourceSelector]()},
 	}
-	sync, ok := cluster.Get(formGVRKey(source.GVR, target.GVR))
-	if !ok {
-		return nil, false
-	}
-	return sync, true
 }
 
 func (fac *factory) CreateSynchronizer(source, target SynchronizerObject, opts ...Option) (DynamicSynchronizer, error) {
@@ -82,11 +79,11 @@ func (fac *factory) CreateSynchronizer(source, target SynchronizerObject, opts .
 		fac.synchronizerMap.Set(key, cluster)
 	}
 
-	sync, ok := cluster.Get(formGVRKey(source.GVR, target.GVR))
+	syn, ok := cluster.Get(formGVRKey(source.GVR, target.GVR))
 	if !ok {
 		sourceAPI := fac.GetResourceInterface(source.ClusterK8sAPI).Resource(source.GVR)
 		targetAPI := fac.GetResourceInterface(target.ClusterK8sAPI).Resource(target.GVR)
-		builder := newSynchronizerBuilder(sourceAPI, targetAPI, syncOpt.updateSourceInterval, syncOpt.updateTargetInterval)
+		builder := newSynchronizerBuilder(sourceAPI, targetAPI, syncOpt.minimumSourceInterval, syncOpt.minimumTargetInterval)
 		stores, err := fac.SetResourceHandler(
 			informer.NewDynamicSubscribe(source.ClusterInformer, source.GVR),
 			informer.NewDynamicSubscribe(target.ClusterInformer, target.GVR),
@@ -103,18 +100,32 @@ func (fac *factory) CreateSynchronizer(source, target SynchronizerObject, opts .
 		sourceHandler := builder.GetSourceInformerHandler()
 		stores[0].SetResourceHandler(informer.ConvertDynamicEventHandler(sourceHandler))
 		stores[1].SetResourceHandler(informer.ConvertDynamicEventHandler(targetHandler))
-		sync = builder.CreateSynchronizer()
-		cluster.Set(formGVRKey(source.GVR, target.GVR), sync)
+		syn = builder.CreateSynchronizer()
+		cluster.Set(formGVRKey(source.GVR, target.GVR), syn)
 	}
 
-	return sync, nil
+	return syn, nil
 }
 
-func NewFactory(dyInformer informer.DynamicInformer, k8sBuilder kubernetes.Builder) SynchronizerFactory {
-	return &factory{
+type retryableFactory struct {
+	informer.DynamicInformer
+	kubernetes.Builder
+}
+
+func (fac *retryableFactory) CreateSynchronizer(source, target SynchronizerObject, opts ...Option) (DynamicSynchronizer, error) {
+	syncOpt := newOption()
+	for _, opt := range opts {
+		opt(syncOpt)
+	}
+
+	syn := newRetryableSynchronizer(fac.DynamicInformer, fac.Builder, source, target)
+	return syn, nil
+}
+
+func NewRetryableFactory(dyInformer informer.DynamicInformer, k8sBuilder kubernetes.Builder) SynchronizerFactory {
+	return &retryableFactory{
 		DynamicInformer: dyInformer,
 		Builder:         k8sBuilder,
-		synchronizerMap: clusterSelector{cmap.New[resourceSelector]()},
 	}
 }
 

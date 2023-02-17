@@ -233,7 +233,7 @@ func (sync *synchronizerPair) onSourceAdd(resource unstructured.Unstructured) {
 		mutatedTarget.OriginalResource = target
 	}
 
-	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
+	_, err = mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
 		logrus.Warningf("synchronizing target resource with error: %v", err)
 		return
@@ -268,7 +268,7 @@ func (sync *synchronizerPair) onTargetAdd(resource unstructured.Unstructured) {
 		mutatedSource.OriginalResource = source
 	}
 
-	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
+	_, err = mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
 		logrus.Warningf("synchronizing source resource with error: %v", err)
 		return
@@ -304,7 +304,7 @@ func (sync *synchronizerPair) onSourceUpdate(oldRes, newRes unstructured.Unstruc
 		mutatedTarget.OriginalResource = target
 	}
 
-	_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
+	_, err = mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 	if err != nil {
 		logrus.Warningf("synchronizing target resource with error: %v", err)
 		return
@@ -341,7 +341,7 @@ func (sync *synchronizerPair) onTargetUpdate(oldRes, newRes unstructured.Unstruc
 		mutatedSource.OriginalResource = source.DeepCopy()
 	}
 
-	_, err = sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
+	_, err = mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
 		logrus.Warningf("synchronizing source resource with error: %v", err)
 		return
@@ -380,7 +380,7 @@ func (sync *synchronizerPair) onSourceDelete(resource unstructured.Unstructured)
 	}
 
 	if mutatedTarget != nil {
-		_, err = sync.mutateResource(sync.target.kubernetesAPI, mutatedTarget)
+		_, err = mutateResource(sync.target.kubernetesAPI, mutatedTarget)
 		if err != nil {
 			logrus.Warningf("synchronizing target resource fail onTargetDelete due to %v", err)
 		}
@@ -417,7 +417,7 @@ func (sync *synchronizerPair) onTargetDelete(resource unstructured.Unstructured)
 		mutatedSource.OriginalResource = source
 	}
 
-	updatedSource, err := sync.mutateResource(sync.source.kubernetesAPI, mutatedSource)
+	updatedSource, err := mutateResource(sync.source.kubernetesAPI, mutatedSource)
 	if err != nil {
 		logrus.Warningf("synchronizing source resource fail onTargetDelete due to %v", err)
 		return
@@ -426,113 +426,6 @@ func (sync *synchronizerPair) onTargetDelete(resource unstructured.Unstructured)
 	if updatedSource == nil {
 		sync.deleteAssignment(as)
 	}
-}
-
-func (sync *synchronizerPair) mutateResource(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
-	if api == nil {
-		return nil, fmt.Errorf("kubernetes client API is nil")
-	}
-	if res == nil {
-		return nil, nil
-	}
-	switch res.Action {
-	case Create:
-		if res.MutatedResource == nil {
-			return nil, fmt.Errorf("create a empty resource")
-		}
-		return api.Namespace(res.MutatedResource.GetNamespace()).Create(context.Background(), res.MutatedResource, v1.CreateOptions{})
-	case Update:
-		if res.MutatedResource == nil {
-			return nil, fmt.Errorf("update a empty resource")
-		}
-		return api.Namespace(res.MutatedResource.GetNamespace()).Update(context.Background(), res.MutatedResource, v1.UpdateOptions{})
-	case UpdateStatus:
-		if res.MutatedResource == nil {
-			return nil, fmt.Errorf("update a empty resource")
-		}
-		return api.Namespace(res.MutatedResource.GetNamespace()).UpdateStatus(context.Background(), res.MutatedResource, v1.UpdateOptions{})
-	case Synchronize:
-		return sync.synchronize(api, res)
-	case Patch:
-		return sync.patch(api, res)
-	case PatchStatus:
-		return sync.patchStatus(api, res)
-	case Delete:
-		if res.MutatedResource == nil {
-			return nil, fmt.Errorf("delete a empty resource")
-		}
-		err := api.Namespace(res.MutatedResource.GetNamespace()).Delete(context.Background(), res.MutatedResource.GetName(), v1.DeleteOptions{})
-		if err != nil {
-			return nil, err
-		}
-		return nil, nil
-	default:
-		return nil, nil
-	}
-}
-
-func (sync *synchronizerPair) patch(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
-	if res.MutatedResource == nil || res.OriginalResource == nil {
-		return nil, fmt.Errorf("patch a empty resource")
-	}
-
-	patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
-	if err != nil {
-		return nil, err
-	}
-
-	buffer, err := json.Marshal(patch)
-	if err != nil {
-		return nil, err
-	}
-
-	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).Patch(context.Background(), res.MutatedResource.GetName(),
-		types.JSONPatchType, buffer, v1.PatchOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	return patched, nil
-}
-
-func (sync *synchronizerPair) synchronize(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
-	if res.MutatedResource == nil {
-		return nil, fmt.Errorf("sync a empty resource")
-	}
-	if res.OriginalResource == nil {
-		return nil, fmt.Errorf("synchonrizing resource must specify the origin")
-	}
-
-	updated, err := api.Namespace(res.MutatedResource.GetNamespace()).Synchronize(context.Background(), res.OriginalResource,
-		res.MutatedResource, v1.UpdateOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
-}
-
-func (sync *synchronizerPair) patchStatus(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
-	if res.MutatedResource == nil || res.OriginalResource == nil {
-		return nil, fmt.Errorf("patch a empty resource")
-	}
-
-	patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
-	if err != nil {
-		return nil, err
-	}
-
-	buffer, err := json.Marshal(patch)
-	if err != nil {
-		return nil, err
-	}
-
-	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).PatchStatus(context.Background(), res.MutatedResource.GetName(),
-		types.JSONPatchType, buffer, v1.PatchOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	return patched, nil
 }
 
 func (sync *synchronizerPair) findSourceAssignment(namespace, name string) (*operationalAssignment, bool) {
@@ -566,6 +459,8 @@ func (sync *synchronizerPair) SetTargetResourceStore(store informer.Unstructured
 	sync.target.resourceStore = store
 	return sync
 }
+
+func (sync *synchronizerPair) Run(ctx context.Context) {}
 
 func (sync *synchronizerPair) CreateSynchronizer() DynamicSynchronizer {
 	return sync
@@ -610,4 +505,111 @@ func getResource(resourceMap map[string]map[string]*unstructured.Unstructured, n
 		storedTargetResource, ok = namespaceableMap[name]
 	}
 	return storedTargetResource, ok
+}
+
+func mutateResource(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if api == nil {
+		return nil, fmt.Errorf("kubernetes client API is nil")
+	}
+	if res == nil {
+		return nil, nil
+	}
+	switch res.Action {
+	case Create:
+		if res.MutatedResource == nil {
+			return nil, fmt.Errorf("create a empty resource")
+		}
+		return api.Namespace(res.MutatedResource.GetNamespace()).Create(context.Background(), res.MutatedResource, v1.CreateOptions{})
+	case Update:
+		if res.MutatedResource == nil {
+			return nil, fmt.Errorf("update a empty resource")
+		}
+		return api.Namespace(res.MutatedResource.GetNamespace()).Update(context.Background(), res.MutatedResource, v1.UpdateOptions{})
+	case UpdateStatus:
+		if res.MutatedResource == nil {
+			return nil, fmt.Errorf("update a empty resource")
+		}
+		return api.Namespace(res.MutatedResource.GetNamespace()).UpdateStatus(context.Background(), res.MutatedResource, v1.UpdateOptions{})
+	case Synchronize:
+		return synchronize(api, res)
+	case Patch:
+		return patch(api, res)
+	case PatchStatus:
+		return patchStatus(api, res)
+	case Delete:
+		if res.MutatedResource == nil {
+			return nil, fmt.Errorf("delete a empty resource")
+		}
+		err := api.Namespace(res.MutatedResource.GetNamespace()).Delete(context.Background(), res.MutatedResource.GetName(), v1.DeleteOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	default:
+		return nil, nil
+	}
+}
+
+func patch(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil || res.OriginalResource == nil {
+		return nil, fmt.Errorf("patch a empty resource")
+	}
+
+	patching, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
+	if err != nil {
+		return nil, err
+	}
+
+	buffer, err := json.Marshal(patching)
+	if err != nil {
+		return nil, err
+	}
+
+	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).Patch(context.Background(), res.MutatedResource.GetName(),
+		types.JSONPatchType, buffer, v1.PatchOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return patched, nil
+}
+
+func synchronize(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil {
+		return nil, fmt.Errorf("sync a empty resource")
+	}
+	if res.OriginalResource == nil {
+		return nil, fmt.Errorf("synchonrizing resource must specify the origin")
+	}
+
+	updated, err := api.Namespace(res.MutatedResource.GetNamespace()).Synchronize(context.Background(), res.OriginalResource,
+		res.MutatedResource, v1.UpdateOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func patchStatus(api kubernetes.DynamicNamespaceableOperator, res *DynamicMutatedResult) (*unstructured.Unstructured, error) {
+	if res.MutatedResource == nil || res.OriginalResource == nil {
+		return nil, fmt.Errorf("patch a empty resource")
+	}
+
+	patch, err := jsondiff.Compare(res.OriginalResource, res.MutatedResource)
+	if err != nil {
+		return nil, err
+	}
+
+	buffer, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	patched, err := api.Namespace(res.MutatedResource.GetNamespace()).PatchStatus(context.Background(), res.MutatedResource.GetName(),
+		types.JSONPatchType, buffer, v1.PatchOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	return patched, nil
 }

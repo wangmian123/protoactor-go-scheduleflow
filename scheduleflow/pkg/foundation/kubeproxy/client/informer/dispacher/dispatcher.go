@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/client/informer/fundamental"
@@ -14,6 +12,7 @@ import (
 	cmap "github.com/orcaman/concurrent-map"
 	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var json jsoniter.API

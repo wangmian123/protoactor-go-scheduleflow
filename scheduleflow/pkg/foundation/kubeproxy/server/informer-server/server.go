@@ -4,13 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/informer-server/subscribe"
-
-	"github.com/sirupsen/logrus"
-
 	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/informer-server/subscribe"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/actorinfo"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/processor"
+	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/rest"
 )
 
@@ -76,7 +74,7 @@ func New(k8sConfig *rest.Config, opts ...Option) *actor.Props {
 func (inf *informerServer) Receive(ctx actor.Context) {
 	switch ctx.Message().(type) {
 	case *actor.Started:
-		logrus.Infof("=======%s started at %s:%s=======", logPrefix, ctx.Self().Address, ctx.Self().Id)
+		logrus.Infof("=======%s started at %s/%s=======", logPrefix, ctx.Self().Address, ctx.Self().Id)
 	default:
 	}
 }

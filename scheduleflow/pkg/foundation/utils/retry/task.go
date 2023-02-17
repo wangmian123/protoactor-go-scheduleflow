@@ -15,6 +15,25 @@ type RecordKey[T any] func(*T) string
 type retryItem[T any] struct {
 	retryTimes int
 	task       *T
+	retryFunc  func(*T) error
+}
+
+func WithRetryFunc[T any](retryFunction func(*T) error) Option[T] {
+	return func(opt *option[T]) {
+		opt.retryFunc = retryFunction
+	}
+}
+
+type Option[T any] func(opt *option[T])
+
+type option[T any] struct {
+	retryFunc func(*T) error
+}
+
+func newOption[T any]() *option[T] {
+	return &option[T]{
+		retryFunc: nil,
+	}
 }
 
 type RetryableExecutor[T any] interface {
@@ -28,9 +47,9 @@ type RetryPolicy[T any] interface {
 
 type RetryableQueue[T any] interface {
 	Run(ctx context.Context)
-	EnqueueTask(task *T) error
-	EnqueueTaskAfter(task *T, interval time.Duration) error
-	UpdateTask(task *T) error
+	EnqueueTask(task *T, opts ...Option[T]) error
+	EnqueueTaskAfter(task *T, interval time.Duration, opts ...Option[T]) error
+	UpdateTask(task *T, opts ...Option[T]) error
 	DequeueTask(task *T) error
 }
 
@@ -65,27 +84,39 @@ func NewWithDefaultRetryPolicy[T any](keyFunc RecordKey[T], retryFunc RetryableE
 	}
 }
 
-func (q *retryableQueue[T]) EnqueueTask(task *T) error {
+func (q *retryableQueue[T]) EnqueueTask(task *T, opts ...Option[T]) error {
 	if q.closed || q.retryQueue.IsShutdown() {
 		return fmt.Errorf("task queue has been closed")
 	}
-	q.retryQueue.Add(&retryItem[T]{task: task})
+	o := newOption[T]()
+	for _, opt := range opts {
+		opt(o)
+	}
+	q.retryQueue.Add(&retryItem[T]{task: task, retryFunc: o.retryFunc})
 	return nil
 }
 
-func (q *retryableQueue[T]) EnqueueTaskAfter(task *T, interval time.Duration) error {
+func (q *retryableQueue[T]) EnqueueTaskAfter(task *T, interval time.Duration, opts ...Option[T]) error {
 	if q.closed || q.retryQueue.IsShutdown() {
 		return fmt.Errorf("task queue has been closed")
 	}
-	q.retryQueue.AddAfter(&retryItem[T]{task: task}, interval)
+	o := newOption[T]()
+	for _, opt := range opts {
+		opt(o)
+	}
+	q.retryQueue.AddAfter(&retryItem[T]{task: task, retryFunc: o.retryFunc}, interval)
 	return nil
 }
 
-func (q *retryableQueue[T]) UpdateTask(task *T) error {
+func (q *retryableQueue[T]) UpdateTask(task *T, opts ...Option[T]) error {
 	if q.closed || q.retryQueue.IsShutdown() {
 		return fmt.Errorf("task queue has been closed")
 	}
-	return q.retryQueue.Update(&retryItem[T]{task: task})
+	o := newOption[T]()
+	for _, opt := range opts {
+		opt(o)
+	}
+	return q.retryQueue.Update(&retryItem[T]{task: task, retryFunc: o.retryFunc})
 }
 
 func (q *retryableQueue[T]) DequeueTask(task *T) error {
@@ -117,7 +148,15 @@ func (q *retryableQueue[T]) run(ctx context.Context) {
 			}
 		}
 
-		err = q.retryFunc.RetryOnError(item.task)
+		if item.retryFunc != nil {
+			err = item.retryFunc(item.task)
+		} else if q.retryFunc != nil {
+			err = q.retryFunc.RetryOnError(item.task)
+		} else {
+			logrus.Errorf("can not retry task, due to no retry function found, ignoring it")
+			continue
+		}
+
 		if err != nil {
 			item.retryTimes++
 			if q.retryPolicy.ForgetItem(item.task, item.retryTimes) {

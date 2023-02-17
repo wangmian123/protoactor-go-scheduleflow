@@ -1,20 +1,18 @@
 package kubernetes_server
 
 import (
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/kubeproxy/server/kubernetes-server/operator"
-
-	"github.com/sirupsen/logrus"
-
-	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/actorinfo"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/processor"
+	"github.com/sirupsen/logrus"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
 
-const logPrefix = "[KubernetesAPI]"
+const logPrefix = "[KubernetesAPIServer]"
 
 type Option func(api *kubernetesAPI)
 
@@ -42,7 +40,7 @@ func New(cfg *rest.Config, actorSystem *actor.ActorSystem, creationPoolSize, upd
 func (api *kubernetesAPI) Receive(ctx actor.Context) {
 	switch msg := ctx.Message().(type) {
 	case *actor.Started:
-		logrus.Infof("=======%s start=======", logPrefix)
+		logrus.Infof("=======%s start at %s/%s=======", logPrefix, ctx.Self().Address, ctx.Self().Id)
 	case kubeproxy.KubernetesAPIBase:
 		_, ok := api.Manager.GetProcessor(msg.GetGVR().String())
 		if ok {
@@ -66,6 +64,9 @@ func (api *kubernetesAPI) Receive(ctx actor.Context) {
 			return
 		}
 		logrus.Infof("%s add resource operator %s", logPrefix, msg.GetGVR().String())
-		api.Manager.AddProcessor(p)
+		err = api.Manager.AddProcessor(p)
+		if err != nil {
+			logrus.Errorf("%s add operator %s error %v", logPrefix, msg.GetGVR().String(), err)
+		}
 	}
 }

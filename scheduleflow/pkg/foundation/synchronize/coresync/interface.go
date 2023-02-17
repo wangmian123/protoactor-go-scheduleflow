@@ -3,32 +3,40 @@ package coresync
 import "context"
 
 type Builder[S, T any] interface {
-	SetBaseInformation(sRecorder RecordKey[S], tRecorder RecordKey[T], getter Getter[S, T]) InformerBuilder[S, T]
+	SetRecorder(sRecorder RecordKey[S], tRecorder RecordKey[T]) ObjectDBSetter[S, T]
+}
+
+type ObjectDBSetter[S, T any] interface {
+	SetSearcher(getter ObjectSearcher[S, T]) InformerBuilder[S, T]
 }
 
 type InformerBuilder[S, T any] interface {
-	SetBilateralStreamer(Informer[S], Informer[T]) BilateralOperatorBuilder[S, T]
-	SetUpstreamStreamer(Informer[S]) UpstreamOperatorBuilder[S, T]
-	SetDownstreamStreamer(Informer[T]) DownstreamOperatorBuilder[S, T]
+	SetBilateralStreamer([]Informer[S], []Informer[T]) BilateralOperatorBuilder[S, T]
+	SetUpstreamStreamer(...Informer[S]) UpstreamOperatorBuilder[S, T]
+	SetDownstreamStreamer(...Informer[T]) DownstreamOperatorBuilder[S, T]
 }
 
 type BilateralOperatorBuilder[S, T any] interface {
-	SetBilateralOperator(UpstreamOperator[S, T], DownstreamOperator[S, T], ...SynchronizerOption[S, T]) Synchronizer[S, T]
+	SetBilateralOperator(up []UpstreamTrigger[S, T], down []DownstreamTrigger[S, T]) SynchronizerFactory[S, T]
 }
 
 type UpstreamOperatorBuilder[S, T any] interface {
-	SetUpstreamOperator(UpstreamOperator[S, T], ...SynchronizerOption[S, T]) Synchronizer[S, T]
+	SetUpstreamOperator(...UpstreamTrigger[S, T]) SynchronizerFactory[S, T]
 }
 
 type DownstreamOperatorBuilder[S, T any] interface {
-	SetDownstreamOperator(DownstreamOperator[S, T], ...SynchronizerOption[S, T]) Synchronizer[S, T]
+	SetDownstreamOperator(...DownstreamTrigger[S, T]) SynchronizerFactory[S, T]
 }
 
-type Getter[S, T any] interface {
+type SynchronizerFactory[S, T any] interface {
+	CreateSynchronizer(opts ...Option[S, T]) (Synchronizer[S, T], error)
+}
+
+type ObjectSearcher[S, T any] interface {
 	GetTarget(target *T) (*T, bool)
-	ListTarget(target *T) []*T
+	ListTarget() []*T
 	GetSource(source *S) (*S, bool)
-	ListSource(source *S) []*S
+	ListSource() []*S
 }
 
 type Informer[T any] interface {
@@ -37,13 +45,13 @@ type Informer[T any] interface {
 	OutflowChannel() CreationStreamChannel[T]
 }
 
-type DownstreamOperator[S, T any] interface {
-	DownstreamInflow(source *S, inflows *T, rest, missing []*T) error
-	DownstreamUpdate(source *S, updates *ResourceUpdater[T], rest, missing []*T) error
-	DownstreamOutflow(source *S, outflows *T, rest, missing []*T) error
+type DownstreamTrigger[S, T any] interface {
+	DownstreamInflow(source *S, inflow *T, rest, missing []*T) error
+	DownstreamUpdate(source *S, update *ResourceUpdater[T], rest, missing []*T) error
+	DownstreamOutflow(source *S, outflow *T, rest, missing []*T) error
 }
 
-type UpstreamOperator[S, T any] interface {
+type UpstreamTrigger[S, T any] interface {
 	UpstreamInflow(source *S, rest, missing []*T) error
 	UpstreamUpdate(source *ResourceUpdater[S], rest, missing []*T) error
 	UpstreamOutflow(source *S, rest, missing []*T) error
@@ -51,10 +59,10 @@ type UpstreamOperator[S, T any] interface {
 
 type Synchronizer[S, T any] interface {
 	Run(ctx context.Context)
-	CreateBind(source *S, targets ...*T) error
+	CreateBind(source *S, target *T) error
+	DeleteBind(source *S, targets ...*T)
 	ListSyncUpstream() map[string]*S
 	ListSyncDownstream() map[string]*T
 	GetSyncDownstream(source *S) (map[string]*T, bool)
 	GetSyncUpstream(target *T) (*S, bool)
-	DeleteBind(source *S, targets ...*T)
 }
