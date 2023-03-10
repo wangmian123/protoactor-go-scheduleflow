@@ -131,7 +131,7 @@ func (bin *binder[S, T]) detachDownstreamBind(source *S, targets ...*T) {
 	}
 }
 
-func (bin *binder[S, T]) DeleteBind(source *S, targets ...*T) {
+func (bin *binder[S, T]) deleteBind(source *S, targets ...*T) {
 	bin.detachUpstreamBind(source, targets...)
 	bin.detachDownstreamBind(source, targets...)
 }
@@ -303,24 +303,68 @@ func (s *synchronizer[S, T]) CreateBind(source *S, target *T) error {
 	return nil
 }
 
-func (s *synchronizer[S, T]) ListSyncUpstream() map[string]*S {
+func (s *synchronizer[S, T]) ListUpstream() map[string]*S {
 	return s.binder.ListSyncUpstream()
 }
 
-func (s *synchronizer[S, T]) ListSyncDownstream() map[string]*T {
+func (s *synchronizer[S, T]) ListDownstream() map[string]*T {
 	return s.binder.ListSyncDownstream()
 }
 
-func (s *synchronizer[S, T]) GetSyncDownstream(source *S) (map[string]*T, bool) {
+func (s *synchronizer[S, T]) GetDownstreamFromUpstream(source *S) (map[string]*T, bool) {
 	return s.binder.GetSyncDownstream(source)
 }
 
-func (s *synchronizer[S, T]) GetSyncUpstream(target *T) (*S, bool) {
+func (s *synchronizer[S, T]) GetUpstreamFromDownstream(target *T) (*S, bool) {
 	return s.binder.GetSyncUpstream(target)
 }
 
 func (s *synchronizer[S, T]) DeleteBind(source *S, targets ...*T) {
-	s.binder.DeleteBind(source, targets...)
+	s.binder.deleteBind(source, targets...)
+}
+
+func (s *synchronizer[S, T]) DeleteDownstream(target *T) {
+	s.binder.deleteDownstream(target)
+}
+
+func (s *synchronizer[S, T]) DeleteUpstream(source *S) {
+	s.binder.deleteUpstream(source)
+}
+
+func (s *synchronizer[S, T]) SetUpstreamStreamer(informers ...Informer[S]) error {
+	if s.upstreamer == nil {
+		return fmt.Errorf("can not set upstream infomrers to a downstreamer")
+	}
+
+	s.upstreamer.setStreamer(informers...)
+	return nil
+}
+
+func (s *synchronizer[S, T]) SetUpstreamOperator(triggers ...UpstreamTrigger[S, T]) error {
+	if s.upstreamer == nil {
+		return fmt.Errorf("can not set upstream triggers to a downstreamer")
+	}
+
+	s.upstreamer.setOperator(triggers...)
+	return nil
+}
+
+func (s *synchronizer[S, T]) SetDownstreamStreamer(informers ...Informer[T]) error {
+	if s.downstreamer == nil {
+		return fmt.Errorf("can not set downstreamer infomrers to a upstreamer")
+	}
+
+	s.downstreamer.setStreamer(informers...)
+	return nil
+}
+
+func (s *synchronizer[S, T]) SetDownstreamOperator(triggers ...DownstreamTrigger[S, T]) error {
+	if s.downstreamer == nil {
+		return fmt.Errorf("can not set downstreamer triggers to a upstreamer")
+	}
+
+	s.downstreamer.setOperator(triggers...)
+	return nil
 }
 
 func mapToSlice[T any](inputs map[string]*T) []*T {

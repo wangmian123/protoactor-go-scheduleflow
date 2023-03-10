@@ -125,10 +125,22 @@ func WithUpstreamUpdatingRetryPolicy[S, T any](backoffTime func(task *S, retryTi
 	}
 }
 
+type queueUpdater interface {
+	getLatestUpdate() *time.Time
+	refreshUpdate(*time.Time)
+}
+
 type bindResource[S, T any] struct {
 	source       *S
 	targets      cmap.ConcurrentMap[*T]
 	latestUpdate *time.Time
+}
+
+func (b *bindResource[S, T]) getLatestUpdate() *time.Time {
+	return b.latestUpdate
+}
+func (b *bindResource[S, T]) refreshUpdate(update *time.Time) {
+	b.latestUpdate = update
 }
 
 type creatingStream[S, T any] struct {

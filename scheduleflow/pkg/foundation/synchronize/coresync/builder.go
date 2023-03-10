@@ -203,14 +203,6 @@ func (fac *synchronizerFactory[S, T]) checkUpstreamArguments() error {
 		return fmt.Errorf(errParse, "DownstreamRecorder")
 	}
 
-	if fac.upstreamInformers == nil {
-		return fmt.Errorf(errParse, "UpstreamInformer")
-	}
-
-	if fac.upstreamOperators == nil {
-		return fmt.Errorf(errParse, "UpstreamOpeartor")
-	}
-
 	return nil
 }
 
@@ -225,26 +217,6 @@ func (fac *synchronizerFactory[S, T]) checkDownstreamArguments() error {
 	}
 	if fac.downRecorder == nil {
 		return fmt.Errorf(errParse, "DownstreamRecorder")
-	}
-
-	if fac.downstreamInformers == nil {
-		return fmt.Errorf(errParse, "DownstreamInformers")
-	}
-
-	for i, inf := range fac.downstreamInformers {
-		if inf == nil {
-			return fmt.Errorf(errParse, fmt.Sprintf("DownstreamInformer-%d", i))
-		}
-	}
-
-	if fac.downstreamOperators == nil {
-		return fmt.Errorf(errParse, "DownstreamOperators")
-	}
-
-	for i, ope := range fac.downstreamOperators {
-		if ope == nil {
-			return fmt.Errorf(errParse, fmt.Sprintf("DownstreamTrigger-%d", i))
-		}
 	}
 
 	return nil

@@ -6,6 +6,7 @@ import (
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/kubernetes"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/synchronize/coresync"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/utils"
 	cmap "github.com/orcaman/concurrent-map"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -110,6 +111,10 @@ func (fac *factory) CreateSynchronizer(source, target SynchronizerObject, opts .
 type retryableFactory struct {
 	informer.DynamicInformer
 	kubernetes.Builder
+
+	coreBuilder  coresync.Builder[DynamicLabelObject, DynamicLabelObject]
+	cores        cmap.ConcurrentMap[coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject]]
+	synchronizer cmap.ConcurrentMap[*retryableSynchronizer]
 }
 
 func (fac *retryableFactory) CreateSynchronizer(source, target SynchronizerObject, opts ...Option) (DynamicSynchronizer, error) {
@@ -118,18 +123,65 @@ func (fac *retryableFactory) CreateSynchronizer(source, target SynchronizerObjec
 		opt(syncOpt)
 	}
 
-	syn := newRetryableSynchronizer(fac.DynamicInformer, fac.Builder, source, target)
+	if syn, ok := fac.synchronizer.Get(formSynchronizerKey(source, target)); ok {
+		return syn, nil
+	}
+
+	core, ok := fac.cores.Get(formGVRKey(source.GVR, target.GVR))
+	if !ok {
+		var err error
+		core, err = fac.createSynchronizerCore(source, target)
+		if err != nil {
+			return nil, err
+		}
+		fac.cores.Set(formGVRKey(source.GVR, target.GVR), core)
+	}
+	syn := newRetryableSynchronizer(fac.DynamicInformer, fac.Builder, source, target, core)
+	fac.synchronizer.Set(formSynchronizerKey(source, target), syn)
 	return syn, nil
 }
 
+func (fac *retryableFactory) createSynchronizerCore(source, target SynchronizerObject) (
+	coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject], error) {
+	recordFunc := func(object *DynamicLabelObject) string {
+		return formClusterResourceKey(object.Label[ClusterLabel], object.Resource.GetNamespace(),
+			object.Resource.GetName())
+	}
+
+	sOperator := fac.GetResourceInterface(kubernetes.GetAPI(source.ClusterK8sAPI.Address)).Resource(source.GVR)
+	tOperator := fac.GetResourceInterface(kubernetes.GetAPI(target.ClusterK8sAPI.Address)).Resource(target.GVR)
+	searcher := newClusterSearcher(source.ClusterK8sAPI.Address, target.ClusterK8sAPI.Address, sOperator, tOperator)
+
+	core, err := fac.coreBuilder.SetRecorder(recordFunc, recordFunc).SetSearcher(searcher).
+		SetBilateralStreamer(nil, nil).SetBilateralOperator(nil, nil).CreateSynchronizer()
+	if err != nil {
+		return nil, fmt.Errorf("create retryable core synchronizer with error: %v", err)
+	}
+
+	return core, nil
+}
+
 func NewRetryableFactory(dyInformer informer.DynamicInformer, k8sBuilder kubernetes.Builder) SynchronizerFactory {
+	return newRetryableFactory(dyInformer, k8sBuilder)
+}
+
+func newRetryableFactory(dyInformer informer.DynamicInformer, k8sBuilder kubernetes.Builder) *retryableFactory {
 	return &retryableFactory{
 		DynamicInformer: dyInformer,
 		Builder:         k8sBuilder,
+		coreBuilder:     coresync.NewBuilder[DynamicLabelObject, DynamicLabelObject](),
+		cores:           cmap.New[coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject]](),
+		synchronizer:    cmap.New[*retryableSynchronizer](),
 	}
 }
 
 func formGVRKey(sourceGVR, targetGVR schema.GroupVersionResource) string {
 	return fmt.Sprintf("%s.%s.%s-%s.%s.%s", sourceGVR.Group, sourceGVR.Version, sourceGVR.Resource,
 		targetGVR.Group, targetGVR.Version, targetGVR.Resource)
+}
+
+func formSynchronizerKey(source, target SynchronizerObject) string {
+	return fmt.Sprintf("%s/%s.%s.%s-%s/%s.%s.%s", source.ClusterInformer.Address,
+		source.GVR.Group, source.GVR.Version, source.GVR.Resource,
+		target.ClusterInformer.Address, target.GVR.Group, target.GVR.Version, target.GVR.Resource)
 }

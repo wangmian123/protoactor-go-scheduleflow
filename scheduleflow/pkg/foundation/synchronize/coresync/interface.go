@@ -61,8 +61,18 @@ type Synchronizer[S, T any] interface {
 	Run(ctx context.Context)
 	CreateBind(source *S, target *T) error
 	DeleteBind(source *S, targets ...*T)
-	ListSyncUpstream() map[string]*S
-	ListSyncDownstream() map[string]*T
-	GetSyncDownstream(source *S) (map[string]*T, bool)
-	GetSyncUpstream(target *T) (*S, bool)
+	DeleteDownstream(target *T)
+	DeleteUpstream(source *S)
+	ListUpstream() map[string]*S
+	ListDownstream() map[string]*T
+	GetDownstreamFromUpstream(source *S) (map[string]*T, bool)
+	GetUpstreamFromDownstream(target *T) (*S, bool)
+	DynamicBuilder[S, T]
+}
+
+type DynamicBuilder[S, T any] interface {
+	SetUpstreamStreamer(...Informer[S]) error
+	SetUpstreamOperator(...UpstreamTrigger[S, T]) error
+	SetDownstreamStreamer(...Informer[T]) error
+	SetDownstreamOperator(...DownstreamTrigger[S, T]) error
 }

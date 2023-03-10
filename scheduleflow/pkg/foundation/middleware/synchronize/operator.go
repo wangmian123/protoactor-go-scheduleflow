@@ -1,10 +1,9 @@
 package synchronize
 
 import (
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/kubernetes"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/synchronize/coresync"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/kubernetes"
 )
 
 type dynamicDownstreamTrigger struct {

@@ -24,7 +24,7 @@ type DynamicSynchronizerBuilder interface {
 // associated source resource, which means if source resource deleted, GenericAssignment will be
 // deleted.
 type GenericSynchronizer[S, T any] interface {
-	GetSynchronizeAssignment(namespace, name string) (GenericAssignment[S, T], bool)
+	GetSynchronizeAssignment(namespace, name string) bool
 	RemoveSynchronizeAssignment(namespace, name string)
 	AddSynchronizeAssignments(op *Operation, tasks ...GenericAssignment[S, T]) error
 	Run(ctx context.Context)

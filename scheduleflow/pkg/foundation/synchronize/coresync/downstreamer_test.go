@@ -28,7 +28,7 @@ func (t *testDownstreamOperator) DownstreamOutflow(source *testSourceResource, o
 	return t.testDownstreamOutflow(source, outflow, rest, missing)
 }
 
-func TestDownstreamNormalFunc(t *testing.T) {
+func TestDownstreamInflowFunc(t *testing.T) {
 	targetInformer := newTestInformer[testTargetResource]()
 
 	targetRecorder := func(res *testTargetResource) string {
@@ -97,8 +97,63 @@ func TestDownstreamNormalFunc(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(tested, convey.ShouldBeTrue)
 		})
+		cancel()
+	})
+}
 
-		tested = false
+func TestDownstreamOutflowFunc(t *testing.T) {
+	targetInformer := newTestInformer[testTargetResource]()
+
+	targetRecorder := func(res *testTargetResource) string {
+		return res.key
+	}
+
+	sourceRecorder := func(res *testSourceResource) string {
+		return res.key
+	}
+
+	sources := make([]*testSourceResource, 10)
+	for i := range sources {
+		sources[i] = &testSourceResource{key: fmt.Sprintf("sourceTest%d", i+1)}
+	}
+	targets := make([]*testTargetResource, 10)
+	for i := range targets {
+		targets[i] = &testTargetResource{key: fmt.Sprintf("targetTest%d", i+1)}
+	}
+
+	getter := newResourceGetter()
+	as := assert.New(t)
+	minimumInterval := 200 * time.Millisecond
+	maximumInterval := 400 * time.Millisecond
+	tested := false
+
+	b := builder[testSourceResource, testTargetResource]{}
+	convey.Convey("test downstream synchronizer core function", t, func() {
+		operator := &testDownstreamOperator{}
+		syn, err := b.SetRecorder(sourceRecorder, targetRecorder).
+			SetSearcher(getter).
+			SetDownstreamStreamer(targetInformer).
+			SetDownstreamOperator(operator).
+			CreateSynchronizer(
+				WithDownstreamMinimumUpdateInterval[testSourceResource, testTargetResource](minimumInterval),
+				WithDownstreamMaximumUpdateInterval[testSourceResource, testTargetResource](maximumInterval),
+			)
+
+		convey.So(err, convey.ShouldBeNil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go syn.Run(ctx)
+
+		err = syn.CreateBind(sources[0], targets[0])
+		convey.So(err, convey.ShouldBeNil)
+		err = syn.CreateBind(sources[0], targets[1])
+		convey.So(err, convey.ShouldBeNil)
+		err = syn.CreateBind(sources[0], targets[2])
+		convey.So(err, convey.ShouldBeNil)
+
+		getter.sourceMap.Set(sourceRecorder(sources[0]), sources[0])
+		getter.targetMap.Set(targetRecorder(targets[1]), targets[1])
+
 		convey.Convey("test downstream delete", func() {
 			deleted := targets[0].DeepCopy()
 			checker := newOvertimeChecker()
@@ -116,13 +171,13 @@ func TestDownstreamNormalFunc(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 
 			time.Sleep(100 * time.Millisecond)
-			targetMap, ok := syn.GetSyncDownstream(sources[0])
+			targetMap, ok := syn.GetDownstreamFromUpstream(sources[0])
 			convey.So(ok, convey.ShouldBeTrue)
 			convey.So(len(targetMap) == 2, convey.ShouldBeTrue)
 			_, ok = targetMap[deleted.key]
 			convey.So(ok, convey.ShouldBeFalse)
 
-			_, ok = syn.GetSyncUpstream(deleted)
+			_, ok = syn.GetUpstreamFromDownstream(deleted)
 			convey.So(ok, convey.ShouldBeFalse)
 			convey.So(tested, convey.ShouldBeTrue)
 		})
@@ -185,13 +240,13 @@ func TestDownstreamUpdateFunc(t *testing.T) {
 		getter.sourceMap.Set(sourceRecorder(sources[0]), sources[0])
 		getter.targetMap.Set(targetRecorder(targets[1]), targets[1])
 
-		convey.Convey("test downstream update", func() {
+		convey.Convey("test downstream updateResource", func() {
 			updated := targets[0].DeepCopy()
 			updated.value = "newTestValue"
 			checker := newOvertimeChecker()
-			lastestUpdate := time.Now()
+			latestUpdate := time.Now()
 
-			// test normal update
+			// test normal updateResource
 			operator.testDownstreamUpdate = func(source *testSourceResource,
 				update *ResourceUpdater[testTargetResource],
 				rest, missing []*testTargetResource) error {
@@ -210,8 +265,8 @@ func TestDownstreamUpdateFunc(t *testing.T) {
 				ProbableOld: targets[0],
 				Newest:      updated,
 			}
-			lastestUpdate = time.Now()
-			err = checker.WaitUntil(200 * time.Millisecond)
+			latestUpdate = time.Now()
+			err = checker.WaitUntil(minimumInterval)
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(tested, convey.ShouldBeTrue)
 
@@ -239,7 +294,7 @@ func TestDownstreamUpdateFunc(t *testing.T) {
 				Newest:      newUpdated,
 			}
 
-			interval := time.Now().Sub(lastestUpdate)
+			interval := time.Now().Sub(latestUpdate)
 			duration := minimumInterval - interval
 
 			err = checker.WaitUntil(duration - 10*time.Millisecond)
@@ -271,7 +326,7 @@ func TestDownstreamUpdateFunc(t *testing.T) {
 			convey.So(err == nil, convey.ShouldBeTrue)
 			convey.So(tested, convey.ShouldBeTrue)
 
-			//test normal update resource
+			//test normal updateResource resource
 			tested = false
 			operator.testDownstreamUpdate = func(source *testSourceResource,
 				update *ResourceUpdater[testTargetResource],

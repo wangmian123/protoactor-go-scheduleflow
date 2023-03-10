@@ -3,7 +3,6 @@ package coresync
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -15,18 +14,10 @@ import (
 
 type upstreamer[S, T any] struct {
 	ObjectSearcher[S, T]
-	informers []Informer[S]
+	informers *informerCases
 	operators []UpstreamTrigger[S, T]
 	*binder[S, T]
-
-	name          string
-	initialOnce   *sync.Once
-	creatingQueue retry.RetryableQueue[creatingStream[S, T]]
-	updatingQueue retry.RetryableQueue[updatingStream[S, T]]
-
-	constraintUpdateQueue queue.DelayingQueue[*ResourceUpdater[S]]
-	maxUpdateInterval     time.Duration
-	minUpdateInterval     time.Duration
+	streamer *streamer[S, T, S]
 }
 
 type upstreamFlux[S, T any] struct {
@@ -50,7 +41,7 @@ func newUpstreamer[S, T any](
 		return fmt.Sprintf("%s-update", bind.upRecorder(task.source.Newest))
 	}
 
-	if tp.operators == nil || tp.informers == nil || tp.getter == nil {
+	if tp.getter == nil {
 		return nil
 	}
 
@@ -59,276 +50,120 @@ func newUpstreamer[S, T any](
 	}
 
 	up := &upstreamer[S, T]{
-		informers:             tp.informers,
-		ObjectSearcher:        tp.getter,
+		informers:      newInformerCases[S](tp.informers),
+		ObjectSearcher: tp.getter,
+		operators:      tp.operators,
+		binder:         bind,
+	}
+
+	queues := &streamer[S, T, S]{
 		name:                  name,
-		initialOnce:           &sync.Once{},
-		operators:             tp.operators,
-		binder:                bind,
 		maxUpdateInterval:     opt.maximumUpstreamUpdateInterval,
 		minUpdateInterval:     opt.minimumUpstreamUpdateInterval,
+		initialOnce:           &sync.Once{},
+		informers:             newInformerCases[S](tp.informers),
 		constraintUpdateQueue: queue.NewDelayingQueue[*ResourceUpdater[S]](newConstraintUpdateKey[S](bind.upRecorder)),
+		creatingQueue:         retry.New[creatingStream[S, T]](creatingKeyFunc, retry.NewRetryFunc[creatingStream[S, T]](up.tryCreatingResource), opt.upstreamCreationRetryPolicy),
+		updatingQueue:         retry.New[updatingStream[S, T]](updatingKeyFunc, retry.NewRetryFunc[updatingStream[S, T]](up.tryUpdatingResource), opt.upstreamUpdatingRetryPolicy),
+		influx:                up,
+		fetcher:               up,
+		operator:              up,
 	}
-	up.creatingQueue = retry.New[creatingStream[S, T]](creatingKeyFunc, retry.NewRetryFunc[creatingStream[S, T]](up.tryCreatingResource), opt.upstreamCreationRetryPolicy)
-	up.updatingQueue = retry.New[updatingStream[S, T]](updatingKeyFunc, retry.NewRetryFunc[updatingStream[S, T]](up.tryUpdatingResource), opt.upstreamUpdatingRetryPolicy)
+
+	up.streamer = queues
 	return up
 }
 
-func (up *upstreamer[S, T]) logPrefix() string {
-	return up.name
-}
-
-func (up *upstreamer[S, T]) runUpdateQueue(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		default:
-			res, err := up.constraintUpdateQueue.Pop()
-			if err != nil {
-				logrus.Debugf("%s pop update queue with error %v", up.logPrefix(), err)
-				continue
-			}
-
-			err = up.syncDownstreamWhenUpstreamUpdating(res)
-			if err != nil {
-				logrus.Errorf("%s sync with error", up.logPrefix())
-			}
-		}
-	}
-}
-
 func (up *upstreamer[S, T]) Run(ctx context.Context) {
-	up.initialOnce.Do(func() {
-		wg := sync.WaitGroup{}
-		wg.Add(4)
-		go func() {
-			up.runUpdateQueue(ctx)
-			wg.Done()
-		}()
-
-		go func() {
-			up.creatingQueue.Run(ctx)
-			wg.Done()
-		}()
-
-		go func() {
-			up.updatingQueue.Run(ctx)
-			wg.Done()
-		}()
-
-		go func() {
-			up.run(ctx)
-			wg.Done()
-		}()
-		wg.Wait()
-	})
+	up.streamer.Run(ctx)
 }
 
-func (up *upstreamer[S, T]) run(ctx context.Context) {
-	ticker := time.NewTicker(up.maxUpdateInterval)
-	inflowCases := make([]reflect.SelectCase, len(up.informers))
-	updateCases := make([]reflect.SelectCase, len(up.informers))
-	outflowCases := make([]reflect.SelectCase, len(up.informers))
-	for i := range up.informers {
-		inflowCases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(up.informers[i].InflowChannel()),
-		}
-		updateCases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(up.informers[i].UpdateChannel()),
-		}
-		outflowCases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(up.informers[i].OutflowChannel()),
-		}
-	}
-
-	go up.runReceivingInflowChannel(ctx, inflowCases)
-	go up.runReceivingUpdateChannel(ctx, updateCases)
-	go up.runReceivingOutflowChannel(ctx, outflowCases)
-
-	for {
-		select {
-		case <-ctx.Done():
-			ticker.Stop()
-			up.constraintUpdateQueue.Shutdown()
-			return
-
-		case <-ticker.C:
-			go up.batchCreateUpdatingTask(ctx)
-		}
-	}
+func (up *upstreamer[S, T]) setStreamer(informers ...Informer[S]) {
+	addInformer[S](up.streamer.informers, informers...)
 }
 
-func (up *upstreamer[S, T]) runReceivingInflowChannel(ctx context.Context, inflows []reflect.SelectCase) {
-	cases := make([]reflect.SelectCase, 0, len(inflows)+1)
-	cases = append(cases, reflect.SelectCase{
-		Dir:  reflect.SelectRecv,
-		Chan: reflect.ValueOf(ctx.Done()),
-	})
-	cases = append(cases, inflows...)
-
-	for {
-		chosen, value, ok := reflect.Select(cases)
-		switch chosen {
-		case 0:
-			return
-		default:
-			if !ok {
-				logrus.Errorf("synchronizer %s inflow channel %d has been closed unexpected", up.name, chosen)
-				continue
-			}
-			src, ok := value.Interface().(*S)
-			if !ok {
-				logrus.Errorf("synchronizer %s inflow channel %d receive type %T expected *T", up.name, chosen, value.Interface())
-				continue
-			}
-
-			err := up.syncDownstreamWhenUpstreamCreating(src, upstreamInflow)
-			if err != nil {
-				logrus.Errorf("%s up with error", up.logPrefix())
-			}
-		}
-	}
+func (up *upstreamer[S, T]) setOperator(triggers ...UpstreamTrigger[S, T]) {
+	up.operators = append(up.operators, triggers...)
 }
 
-func (up *upstreamer[S, T]) runReceivingUpdateChannel(ctx context.Context, updates []reflect.SelectCase) {
-	cases := make([]reflect.SelectCase, 0, len(updates)+1)
-	cases = append(cases, reflect.SelectCase{
-		Dir:  reflect.SelectRecv,
-		Chan: reflect.ValueOf(ctx.Done()),
-	})
-	cases = append(cases, updates...)
-
-	for {
-		chosen, value, ok := reflect.Select(cases)
-		switch chosen {
-		case 0:
-			return
-		default:
-			if !ok {
-				logrus.Errorf("synchronizer %s update channel %d has been closed unexpected", up.name, chosen)
-				continue
-			}
-			src, ok := value.Interface().(*ResourceUpdater[S])
-			if !ok {
-				logrus.Errorf("synchronizer %s update channel %d receive type %T expected *T", up.name, chosen, value.Interface())
-				continue
-			}
-			up.onUpdateEvent(src)
-		}
-	}
+func (up *upstreamer[S, T]) inflowResource(source *S) (*creatingStream[S, T], error) {
+	return up.syncDownstreamWhenUpstreamCreating(source, upstreamInflow)
 }
 
-func (up *upstreamer[S, T]) runReceivingOutflowChannel(ctx context.Context, outflow []reflect.SelectCase) {
-	cases := make([]reflect.SelectCase, 0, len(outflow)+1)
-	cases = append(cases, reflect.SelectCase{
-		Dir:  reflect.SelectRecv,
-		Chan: reflect.ValueOf(ctx.Done()),
-	})
-	cases = append(cases, outflow...)
-
-	for {
-		chosen, value, ok := reflect.Select(cases)
-		switch chosen {
-		case 0:
-			return
-		default:
-			if !ok {
-				logrus.Errorf("synchronizer %s outflow channel %d has been closed unexpected", up.name, chosen)
-				continue
-			}
-
-			src, ok := value.Interface().(*S)
-			if !ok {
-				logrus.Errorf("synchronizer %s outflow channel %d receive type %T expected *T", up.name, chosen, value.Interface())
-				continue
-			}
-
-			err := up.syncDownstreamWhenUpstreamCreating(src, upstreamOutflow)
-			if err != nil {
-				logrus.Errorf("%s up with error", up.logPrefix())
-			}
-		}
-	}
+func (up *upstreamer[S, T]) updateResource(source *ResourceUpdater[S]) (*updatingStream[S, T], error) {
+	return up.syncDownstreamWhenUpstreamUpdating(source)
 }
 
-func (up *upstreamer[S, T]) syncDownstreamWhenUpstreamCreating(source *S, taskType creationType) error {
+func (up *upstreamer[S, T]) outflowResource(source *S) (*creatingStream[S, T], error) {
+	return up.syncDownstreamWhenUpstreamCreating(source, upstreamOutflow)
+}
+
+func (up *upstreamer[S, T]) getNewestResource(source *S) (*S, bool) {
+	return up.GetSource(source)
+}
+
+func (up *upstreamer[S, T]) getBindResource(source *S) (queueUpdater, bool) {
+	return up.upstreamBind.Get(up.upRecorder(source))
+}
+
+func (up *upstreamer[S, T]) getUpdateBatch() []*S {
+	items := make([]*S, 0, len(up.upstreamBind.Items()))
+	for _, res := range up.upstreamBind.Items() {
+		items = append(items, res.source)
+	}
+	return items
+}
+
+func (up *upstreamer[S, T]) yieldInflowOperator() func(task *creatingStream[S, T]) error {
+	return yieldOperator[UpstreamTrigger[S, T], creatingStream[S, T]](
+		up.operators, up.tryCreatingResourceWithOperator)
+}
+
+func (up *upstreamer[S, T]) yieldUpdateOperator() func(task *updatingStream[S, T]) error {
+	return yieldOperator[UpstreamTrigger[S, T], updatingStream[S, T]](
+		up.operators, up.tryUpdatingResourceWithOperator)
+}
+
+func (up *upstreamer[S, T]) yieldOutflowOperator() func(task *creatingStream[S, T]) error {
+	return up.yieldInflowOperator()
+}
+
+func (up *upstreamer[S, T]) syncDownstreamWhenUpstreamCreating(source *S,
+	taskType creationType) (*creatingStream[S, T], error) {
 	if source == nil {
-		return fmt.Errorf("%s sync a empty Source", up.logPrefix())
+		return nil, fmt.Errorf("%s sync a empty Source", up.streamer.logPrefix())
 	}
 
 	task, ok := up.upstreamBind.Get(up.upRecorder(source))
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	switch taskType {
 	case upstreamInflow, upstreamOutflow:
 		break
 	default:
-		return fmt.Errorf("creating type error, expected upstreamInflow and upstreamOutflow")
+		return nil, fmt.Errorf("creating type error, expected upstreamInflow and upstreamOutflow")
 	}
 
-	newTask := &creatingStream[S, T]{source: source, targets: task.targets.Items(), taskType: taskType}
-
-	unfinishedOperators := make(map[int]UpstreamTrigger[S, T], len(up.operators))
-	for i := range up.operators {
-		unfinishedOperators[i] = up.operators[i]
-	}
-
-	taskFunc := func(task *creatingStream[S, T]) error {
-		runTaskFunc := func(ope UpstreamTrigger[S, T]) error {
-			return up.tryCreatingResourceWithOperator(task, ope)
-		}
-		return up.retryUntilAllDone(runTaskFunc, unfinishedOperators)
-	}
-
-	err := up.creatingQueue.EnqueueTask(newTask, retry.WithRetryFunc[creatingStream[S, T]](taskFunc))
-	if err != nil {
-		return fmt.Errorf("can not add task due to %v", err)
-	}
-
-	return nil
+	return &creatingStream[S, T]{source: source, targets: task.targets.Items(), taskType: taskType}, nil
 }
 
-func (up *upstreamer[S, T]) syncDownstreamWhenUpstreamUpdating(source *ResourceUpdater[S]) error {
+func (up *upstreamer[S, T]) syncDownstreamWhenUpstreamUpdating(source *ResourceUpdater[S]) (*updatingStream[S, T], error) {
 	if source == nil || source.Newest == nil {
-		return fmt.Errorf("%s sync a empty Source", up.logPrefix())
+		return nil, fmt.Errorf("%s sync a empty Source", up.streamer.logPrefix())
 	}
 
 	task, ok := up.upstreamBind.Get(up.upRecorder(source.Newest))
 	if !ok {
-		return nil
-	}
-
-	newTask := &updatingStream[S, T]{source: source, targets: task.targets.Items(), taskType: upstreamUpdate}
-
-	unfinishedOperators := make(map[int]UpstreamTrigger[S, T], len(up.operators))
-	for i := range up.operators {
-		unfinishedOperators[i] = up.operators[i]
-	}
-
-	taskFunc := func(task *updatingStream[S, T]) error {
-		runTaskFunc := func(ope UpstreamTrigger[S, T]) error {
-			return up.tryUpdatingResourceWithOperator(task, ope)
-		}
-		return up.retryUntilAllDone(runTaskFunc, unfinishedOperators)
-	}
-
-	err := up.updatingQueue.EnqueueTask(newTask, retry.WithRetryFunc[updatingStream[S, T]](taskFunc))
-	if err != nil {
-		return fmt.Errorf("can not add task due to %v", err)
+		return nil, nil
 	}
 
 	now := time.Now()
 	task.latestUpdate = &now
 	up.upstreamBind.Set(up.upRecorder(task.source), task)
 
-	return nil
+	return &updatingStream[S, T]{source: source, targets: task.targets.Items(), taskType: upstreamUpdate}, nil
 }
 
 func (up *upstreamer[S, T]) tryUpdatingResource(task *updatingStream[S, T]) error {
@@ -343,7 +178,7 @@ func (up *upstreamer[S, T]) tryUpdatingResource(task *updatingStream[S, T]) erro
 
 func (up *upstreamer[S, T]) tryUpdatingResourceWithOperator(task *updatingStream[S, T], operator UpstreamTrigger[S, T]) error {
 	if task == nil {
-		logrus.Errorf("%s retry a nil task", up.logPrefix())
+		logrus.Errorf("%s retry a nil task", up.streamer.logPrefix())
 		return nil
 	}
 
@@ -362,7 +197,7 @@ func (up *upstreamer[S, T]) tryUpdatingResourceWithOperator(task *updatingStream
 	switch task.taskType {
 	case upstreamUpdate:
 		if task.source.Newest == nil {
-			logrus.Errorf("%s get a nil Source", up.logPrefix())
+			logrus.Errorf("%s get a nil Source", up.streamer.logPrefix())
 			return nil
 		}
 
@@ -372,7 +207,8 @@ func (up *upstreamer[S, T]) tryUpdatingResourceWithOperator(task *updatingStream
 		}
 		return nil
 	default:
-		logrus.Errorf("%s upstream task %s with error: creationType %d found, ignoring task", up.logPrefix(), up.upRecorder(task.source.Newest), task.taskType)
+		logrus.Errorf("%s upstream task %s with error: creationType %d found, ignoring task",
+			up.streamer.logPrefix(), up.upRecorder(task.source.Newest), task.taskType)
 		return nil
 	}
 }
@@ -389,7 +225,7 @@ func (up *upstreamer[S, T]) tryCreatingResource(task *creatingStream[S, T]) erro
 
 func (up *upstreamer[S, T]) tryCreatingResourceWithOperator(task *creatingStream[S, T], operator UpstreamTrigger[S, T]) error {
 	if task == nil {
-		logrus.Errorf("%s retry a nil task", up.logPrefix())
+		logrus.Errorf("%s retry a nil task", up.streamer.logPrefix())
 		return nil
 	}
 
@@ -420,61 +256,9 @@ func (up *upstreamer[S, T]) tryCreatingResourceWithOperator(task *creatingStream
 		up.deleteUpstream(task.source)
 		return nil
 	default:
-		logrus.Errorf("%s upstream task %s with error: creationType %d found, ignoring task", up.logPrefix(), up.upRecorder(task.source), task.taskType)
+		logrus.Errorf("%s upstream task %s with error: creationType %d found, ignoring task", up.streamer.logPrefix(), up.upRecorder(task.source), task.taskType)
 		return nil
 	}
-}
-
-func (up *upstreamer[S, T]) batchCreateUpdatingTask(ctx context.Context) {
-	newCtx, _ := context.WithTimeout(ctx, up.maxUpdateInterval)
-	query := &ResourceUpdater[S]{}
-	for _, task := range up.upstreamBind.Items() {
-		select {
-		case <-newCtx.Done():
-			logrus.Errorf("%s batch create upstream task timeout", up.logPrefix())
-			return
-		default:
-			break
-		}
-
-		query.Newest = task.source
-		if _, ok := up.constraintUpdateQueue.Get(query); ok {
-			continue
-		}
-
-		newest, ok := up.GetSource(task.source)
-		if !ok {
-			logrus.Debugf("%s can not get %s when create maximum updating task", up.logPrefix(), up.upRecorder(task.source))
-			continue
-		}
-		up.onUpdateEvent(&ResourceUpdater[S]{Newest: newest})
-	}
-}
-
-func (up *upstreamer[S, T]) onUpdateEvent(src *ResourceUpdater[S]) {
-	if src == nil || src.Newest == nil {
-		logrus.Errorf("%s sync a empty Source", up.logPrefix())
-		return
-	}
-
-	task, ok := up.upstreamBind.Get(up.upRecorder(src.Newest))
-	if !ok {
-		return
-	}
-
-	if up.minUpdateInterval == 0 || task.latestUpdate == nil {
-		up.constraintUpdateQueue.Add(src)
-		return
-	}
-
-	lastUpdateInterval := time.Now().Sub(*task.latestUpdate)
-	if lastUpdateInterval < up.minUpdateInterval {
-		interval := up.minUpdateInterval - lastUpdateInterval
-		up.constraintUpdateQueue.AddAfter(src, interval)
-		return
-	}
-
-	up.constraintUpdateQueue.Add(src)
 }
 
 func (up *upstreamer[S, T]) retryUntilAllDone(runTask func(ope UpstreamTrigger[S, T]) error,

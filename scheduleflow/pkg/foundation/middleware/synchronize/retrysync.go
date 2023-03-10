@@ -3,6 +3,7 @@ package synchronize
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
@@ -16,13 +17,16 @@ import (
 type retryableSynchronizer struct {
 	informer informer.DynamicInformer
 	k8s      kubernetes.Builder
+	once     sync.Once
 
 	builder coresync.Builder[DynamicLabelObject, DynamicLabelObject]
 	core    coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject]
 
 	source SynchronizerObject
 	target SynchronizerObject
-	tasks  []DynamicAssignment
+
+	sSubscriber *informer.DynamicSubscribe
+	tSubscriber *informer.DynamicSubscribe
 }
 
 func newRetryableSynchronizer(
@@ -30,98 +34,139 @@ func newRetryableSynchronizer(
 	k8s kubernetes.Builder,
 	source SynchronizerObject,
 	target SynchronizerObject,
-) DynamicSynchronizer {
+	core coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject],
+) *retryableSynchronizer {
 	return &retryableSynchronizer{
 		builder:  coresync.NewBuilder[DynamicLabelObject, DynamicLabelObject](),
 		informer: informer,
 		k8s:      k8s,
 		source:   source,
 		target:   target,
+		core:     core,
+		once:     sync.Once{},
 	}
 }
 
-func (s *retryableSynchronizer) GetSynchronizeAssignment(namespace, name string) (DynamicAssignment, bool) {
-	query := createQuery(s.source.ClusterK8sAPI.Address, namespace, name)
-	if s.core == nil {
-		return nil, false
-	}
-	_, ok := s.core.GetSyncUpstream(query)
+// GetSynchronizeAssignment check whether target has been assigned.
+func (s *retryableSynchronizer) GetSynchronizeAssignment(namespace, name string) bool {
+	query := createQuery(s.target.ClusterK8sAPI.Address, namespace, name)
+	_, ok := s.core.GetUpstreamFromDownstream(query)
 	if !ok {
-		return nil, false
+		return false
 	}
-	return nil, true
+	return true
 }
 
+// RemoveSynchronizeAssignment remove synchronizing target.
 func (s *retryableSynchronizer) RemoveSynchronizeAssignment(namespace, name string) {
-	deleted := createQuery(s.source.ClusterInformer.Address, namespace, name)
-	if s.core == nil {
-		return
-	}
-	s.core.DeleteBind(deleted, deleted)
+	target := createQuery(s.target.ClusterInformer.Address, namespace, name)
+	s.core.DeleteDownstream(target)
 }
 
 func (s *retryableSynchronizer) AddSynchronizeAssignments(op *Operation, tasks ...DynamicAssignment) error {
 	if len(tasks) == 0 {
 		return fmt.Errorf("can not add an empty tasks")
 	}
-	s.tasks = append(s.tasks, tasks...)
+
+	if op == nil {
+		op = &Operation{
+			MappingNamespace: nil,
+			MappingNames:     make(map[string]string),
+		}
+	}
+
+	for _, t := range tasks {
+		err := s.binding(op, t)
+		if err != nil {
+			return err
+		}
+	}
+
+	if s.sSubscriber != nil || s.tSubscriber != nil {
+		return nil
+	}
+
+	err := s.dynamicBuildCore(tasks)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (s *retryableSynchronizer) Run(ctx context.Context) {
-	recordFunc := func(object *DynamicLabelObject) string {
-		return formClusterResourceKey(object.Label[ClusterLabel], object.Resource.GetNamespace(),
-			object.Resource.GetName())
-	}
+func (s *retryableSynchronizer) dynamicBuildCore(tasks []DynamicAssignment) error {
+	upstreamTriggers, downstreamTriggers := s.createTriggers(tasks)
 
 	sInformer := newLabeledInformer[unstructured.Unstructured](Cluster{
 		Address: s.source.ClusterInformer.Address,
 	})
-	sDescriber := informer.NewDynamicSubscribe(s.source.ClusterInformer, s.source.GVR,
+	sSubscriber := informer.NewDynamicSubscribe(s.source.ClusterInformer, s.source.GVR,
 		informer.WithDynamicInformerHandler(sInformer.CreateDynamicEventHandler()))
 
 	tInformer := newLabeledInformer[unstructured.Unstructured](Cluster{
 		Address: s.target.ClusterInformer.Address,
 	})
-	tDescriber := informer.NewDynamicSubscribe(s.target.ClusterInformer, s.target.GVR,
+	tSubscriber := informer.NewDynamicSubscribe(s.target.ClusterInformer, s.target.GVR,
 		informer.WithDynamicInformerHandler(tInformer.CreateDynamicEventHandler()))
 
-	upstreamTriggers, downstreamTriggers := s.createTriggers()
+	s.sSubscriber = &sSubscriber
+	s.tSubscriber = &tSubscriber
 
-	core, err := s.builder.SetRecorder(recordFunc, recordFunc).SetSearcher(s.createSearcher()).
-		SetBilateralStreamer([]coresync.Informer[DynamicLabelObject]{sInformer}, []coresync.Informer[DynamicLabelObject]{tInformer}).
-		SetBilateralOperator(upstreamTriggers, downstreamTriggers).CreateSynchronizer()
+	err := s.core.SetUpstreamStreamer(sInformer)
 	if err != nil {
-		logrus.Errorf("create retryable core synchronizer with error: %v", err)
-		return
-	}
-	s.core = core
-
-	for _, t := range s.tasks {
-		err = s.binding(t)
-		if err != nil {
-			logrus.Error(err)
-		}
+		return err
 	}
 
-	done := make(chan struct{})
-	go func() {
-		s.core.Run(ctx)
-		done <- struct{}{}
-	}()
-	_, err = s.informer.SetResourceHandler(sDescriber, tDescriber)
+	err = s.core.SetUpstreamOperator(upstreamTriggers...)
 	if err != nil {
-		logrus.Errorf("start informer with error: %v", err)
-		return
+		return err
 	}
-	<-done
-	logrus.Infof("retry synchronizer has been closed")
+
+	err = s.core.SetDownstreamStreamer(tInformer)
+	if err != nil {
+		return err
+	}
+
+	err = s.core.SetDownstreamOperator(downstreamTriggers...)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (s *retryableSynchronizer) createTriggers() ([]DynamicUpstreamTrigger, []DynamicDownstreamTrigger) {
-	upstreamTriggers := make([]DynamicUpstreamTrigger, len(s.tasks))
-	downstreamTriggers := make([]DynamicDownstreamTrigger, len(s.tasks))
-	for i, t := range s.tasks {
+func (s *retryableSynchronizer) Run(ctx context.Context) {
+	if s.tSubscriber == nil || s.sSubscriber == nil {
+		logrus.Errorf("can not run retryable synchronizer due to subscriber is empty," +
+			"add a task before run synchronizer.")
+		return
+	}
+	s.run(ctx)
+}
+
+func (s *retryableSynchronizer) run(ctx context.Context) {
+	s.once.Do(func() {
+		done := make(chan struct{})
+		go func() {
+			s.core.Run(ctx)
+			if _, ok := <-done; !ok {
+				return
+			}
+			done <- struct{}{}
+		}()
+
+		_, err := s.informer.SetResourceHandler(*s.sSubscriber, *s.tSubscriber)
+		if err != nil {
+			logrus.Errorf("can not run retryable synchronizer due to %s", err)
+			return
+		}
+		<-done
+		logrus.Infof("retry synchronizer has been closed")
+	})
+}
+
+func (s *retryableSynchronizer) createTriggers(tasks []DynamicAssignment) ([]DynamicUpstreamTrigger, []DynamicDownstreamTrigger) {
+	upstreamTriggers := make([]DynamicUpstreamTrigger, len(tasks))
+	downstreamTriggers := make([]DynamicDownstreamTrigger, len(tasks))
+	for i, t := range tasks {
 		upstreamTriggers[i] = newAssignmentUpstreamTrigger(
 			&Cluster{Address: s.target.ClusterInformer.Address},
 			t.SynchronizeTarget(),
@@ -136,7 +181,7 @@ func (s *retryableSynchronizer) createTriggers() ([]DynamicUpstreamTrigger, []Dy
 	return upstreamTriggers, downstreamTriggers
 }
 
-func (s *retryableSynchronizer) binding(t DynamicAssignment) error {
+func (s *retryableSynchronizer) binding(op *Operation, t DynamicAssignment) error {
 	sourceRes := &unstructured.Unstructured{}
 	sourceRes.SetName(t.GetName())
 	sourceRes.SetNamespace(t.GetNamespace())
@@ -146,8 +191,18 @@ func (s *retryableSynchronizer) binding(t DynamicAssignment) error {
 	}
 
 	targetRes := &unstructured.Unstructured{}
-	targetRes.SetName(t.GetName())
 	targetRes.SetNamespace(t.GetNamespace())
+	if op.MappingNamespace != nil {
+		targetRes.SetNamespace(*op.MappingNamespace)
+	}
+
+	targetRes.SetName(t.GetName())
+	if len(op.MappingNames) != 0 {
+		if name, ok := op.MappingNames[t.GetName()]; ok {
+			targetRes.SetName(name)
+		}
+	}
+
 	target := &DynamicLabelObject{
 		Label:    map[string]string{ClusterLabel: s.target.ClusterInformer.Address},
 		Resource: targetRes,
@@ -158,13 +213,6 @@ func (s *retryableSynchronizer) binding(t DynamicAssignment) error {
 		return fmt.Errorf("retryable synchronizer binding error: %v", err)
 	}
 	return nil
-}
-
-func (s *retryableSynchronizer) createSearcher() coresync.ObjectSearcher[DynamicLabelObject, DynamicLabelObject] {
-	sOperator := s.k8s.GetResourceInterface(kubernetes.GetAPI(s.source.ClusterK8sAPI.Address)).Resource(s.source.GVR)
-	tOperator := s.k8s.GetResourceInterface(kubernetes.GetAPI(s.target.ClusterK8sAPI.Address)).Resource(s.target.GVR)
-	searcher := newClusterSearcher(s.source.ClusterK8sAPI.Address, s.target.ClusterK8sAPI.Address, sOperator, tOperator)
-	return searcher
 }
 
 type clusterSearcher struct {

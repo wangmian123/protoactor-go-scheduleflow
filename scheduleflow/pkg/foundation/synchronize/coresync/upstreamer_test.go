@@ -28,7 +28,7 @@ func (t *testUpstreamOperator) UpstreamOutflow(source *testSourceResource, rest,
 	return t.testUpstreamOutflow(source, rest, missing)
 }
 
-func TestUpstreamNormalFunc(t *testing.T) {
+func TestUpstreamAddFunc(t *testing.T) {
 	sourceInformer := newTestInformer[testSourceResource]()
 
 	targetRecorder := func(res *testTargetResource) string {
@@ -96,6 +96,60 @@ func TestUpstreamNormalFunc(t *testing.T) {
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(tested, convey.ShouldBeTrue)
 		})
+	})
+}
+
+func TestUpstreamDeleteFunc(t *testing.T) {
+	sourceInformer := newTestInformer[testSourceResource]()
+
+	targetRecorder := func(res *testTargetResource) string {
+		return res.key
+	}
+
+	sourceRecorder := func(res *testSourceResource) string {
+		return res.key
+	}
+
+	sources := make([]*testSourceResource, 10)
+	for i := range sources {
+		sources[i] = &testSourceResource{key: fmt.Sprintf("sourceTest%d", i+1)}
+	}
+	targets := make([]*testTargetResource, 10)
+	for i := range targets {
+		targets[i] = &testTargetResource{key: fmt.Sprintf("targetTest%d", i+1)}
+	}
+
+	getter := newResourceGetter()
+	as := assert.New(t)
+
+	b := builder[testSourceResource, testTargetResource]{}
+	convey.Convey("test Upstream synchronizer core function", t, func() {
+		operator := &testUpstreamOperator{}
+		syn, err := b.SetRecorder(sourceRecorder, targetRecorder).
+			SetSearcher(getter).
+			SetUpstreamStreamer(sourceInformer).
+			SetUpstreamOperator(operator).
+			CreateSynchronizer(
+				WithUpstreamMinimumUpdateInterval[testSourceResource, testTargetResource](200*time.Millisecond),
+				WithUpstreamMaximumUpdateInterval[testSourceResource, testTargetResource](400*time.Millisecond),
+			)
+
+		convey.So(err, convey.ShouldBeNil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go syn.Run(ctx)
+
+		err = syn.CreateBind(sources[0], targets[0])
+		convey.So(err, convey.ShouldBeNil)
+		err = syn.CreateBind(sources[0], targets[1])
+		convey.So(err, convey.ShouldBeNil)
+		err = syn.CreateBind(sources[0], targets[2])
+		convey.So(err, convey.ShouldBeNil)
+
+		getter.sourceMap.Set(sourceRecorder(sources[0]), sources[0])
+		getter.targetMap.Set(targetRecorder(targets[1]), targets[1])
+		getter.targetMap.Set(targetRecorder(targets[0]), targets[0])
 
 		convey.Convey("test Upstream delete", func() {
 			deleted := sources[0].DeepCopy()
@@ -114,7 +168,7 @@ func TestUpstreamNormalFunc(t *testing.T) {
 			convey.So(tested, convey.ShouldBeTrue)
 
 			time.Sleep(100 * time.Millisecond)
-			_, ok := syn.GetSyncDownstream(sources[0])
+			_, ok := syn.GetDownstreamFromUpstream(sources[0])
 			convey.So(ok, convey.ShouldBeFalse)
 		})
 	})
@@ -174,14 +228,14 @@ func TestUpstreamUpdateFunc(t *testing.T) {
 		getter.targetMap.Set(targetRecorder(targets[1]), targets[1])
 		getter.targetMap.Set(targetRecorder(targets[0]), targets[0])
 
-		convey.Convey("test Upstream update", func() {
+		convey.Convey("test Upstream updateResource", func() {
 			updated := sources[0].DeepCopy()
 			updated.value = "newTestValue"
 			checker := newOvertimeChecker()
 			lastUpdate := time.Now()
 
 			tested := false
-			// test normal update
+			// test normal updateResource
 			operator.testUpstreamUpdate = func(source *ResourceUpdater[testSourceResource], rest, missing []*testTargetResource) error {
 				tested = true
 				as.Equal(updated.key, source.Newest.key)
@@ -201,7 +255,7 @@ func TestUpstreamUpdateFunc(t *testing.T) {
 			convey.So(tested, convey.ShouldBeTrue)
 			tested = false
 
-			// test update minimum interval
+			// test updateResource minimum interval
 			newUpdated := updated.DeepCopy()
 			newUpdated.value = "refreshedValue"
 
@@ -250,7 +304,7 @@ func TestUpstreamUpdateFunc(t *testing.T) {
 			convey.So(err == nil, convey.ShouldBeTrue)
 			convey.So(tested, convey.ShouldBeTrue)
 
-			//test normal update resource
+			//test normal updateResource resource
 			tested = false
 			operator.testUpstreamUpdate = func(source *ResourceUpdater[testSourceResource], rest, missing []*testTargetResource) error {
 				tested = true

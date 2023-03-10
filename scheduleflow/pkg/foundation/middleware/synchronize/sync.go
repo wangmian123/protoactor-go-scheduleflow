@@ -88,16 +88,16 @@ func newSynchronizerBuilder(sourceAPI, targetAPI kubernetes.DynamicNamespaceable
 	}
 }
 
-func (sync *synchronizerPair) GetSynchronizeAssignment(namespace, name string) (DynamicAssignment, bool) {
+func (sync *synchronizerPair) GetSynchronizeAssignment(namespace, name string) bool {
 	sourceMap, ok := sync.source.assignmentMap.Get(namespace)
 	if !ok {
-		return nil, false
+		return false
 	}
-	task, ok := sourceMap.Get(name)
+	_, ok = sourceMap.Get(name)
 	if !ok {
-		return nil, false
+		return false
 	}
-	return task, true
+	return true
 }
 
 func (sync *synchronizerPair) RemoveSynchronizeAssignment(namespace, name string) {
