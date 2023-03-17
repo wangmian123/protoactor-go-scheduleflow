@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	cmap "github.com/orcaman/concurrent-map"
+
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/kubernetes"
 	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/synchronize/coresync"
@@ -20,7 +22,7 @@ type retryableSynchronizer struct {
 	once     sync.Once
 
 	builder coresync.Builder[DynamicLabelObject, DynamicLabelObject]
-	core    coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject]
+	core    *synchronizerCore
 
 	source SynchronizerObject
 	target SynchronizerObject
@@ -34,7 +36,7 @@ func newRetryableSynchronizer(
 	k8s kubernetes.Builder,
 	source SynchronizerObject,
 	target SynchronizerObject,
-	core coresync.Synchronizer[DynamicLabelObject, DynamicLabelObject],
+	core *synchronizerCore,
 ) *retryableSynchronizer {
 	return &retryableSynchronizer{
 		builder:  coresync.NewBuilder[DynamicLabelObject, DynamicLabelObject](),
@@ -50,7 +52,7 @@ func newRetryableSynchronizer(
 // GetSynchronizeAssignment check whether target has been assigned.
 func (s *retryableSynchronizer) GetSynchronizeAssignment(namespace, name string) bool {
 	query := createQuery(s.target.ClusterK8sAPI.Address, namespace, name)
-	_, ok := s.core.GetUpstreamFromDownstream(query)
+	_, ok := s.core.synchronizer.GetUpstreamFromDownstream(query)
 	if !ok {
 		return false
 	}
@@ -60,7 +62,7 @@ func (s *retryableSynchronizer) GetSynchronizeAssignment(namespace, name string)
 // RemoveSynchronizeAssignment remove synchronizing target.
 func (s *retryableSynchronizer) RemoveSynchronizeAssignment(namespace, name string) {
 	target := createQuery(s.target.ClusterInformer.Address, namespace, name)
-	s.core.DeleteDownstream(target)
+	s.core.synchronizer.DeleteDownstream(target)
 }
 
 func (s *retryableSynchronizer) AddSynchronizeAssignments(op *Operation, tasks ...DynamicAssignment) error {
@@ -111,22 +113,28 @@ func (s *retryableSynchronizer) dynamicBuildCore(tasks []DynamicAssignment) erro
 	s.sSubscriber = &sSubscriber
 	s.tSubscriber = &tSubscriber
 
-	err := s.core.SetUpstreamStreamer(sInformer)
+	err := s.core.synchronizer.SetUpstreamStreamer(sInformer)
 	if err != nil {
 		return err
 	}
 
-	err = s.core.SetUpstreamOperator(upstreamTriggers...)
+	err = s.core.synchronizer.SetUpstreamOperator(upstreamTriggers...)
 	if err != nil {
 		return err
 	}
 
-	err = s.core.SetDownstreamStreamer(tInformer)
+	s.core.searcher.addSourceOperator(s.source.ClusterK8sAPI.Address,
+		s.k8s.GetResourceInterface(s.source.ClusterK8sAPI).Resource(s.source.GVR))
+
+	err = s.core.synchronizer.SetDownstreamStreamer(tInformer)
 	if err != nil {
 		return err
 	}
 
-	err = s.core.SetDownstreamOperator(downstreamTriggers...)
+	s.core.searcher.addTargetOperator(s.target.ClusterK8sAPI.Address,
+		s.k8s.GetResourceInterface(s.target.ClusterK8sAPI).Resource(s.target.GVR))
+
+	err = s.core.synchronizer.SetDownstreamOperator(downstreamTriggers...)
 	if err != nil {
 		return err
 	}
@@ -146,7 +154,7 @@ func (s *retryableSynchronizer) run(ctx context.Context) {
 	s.once.Do(func() {
 		done := make(chan struct{})
 		go func() {
-			s.core.Run(ctx)
+			s.core.synchronizer.Run(ctx)
 			if _, ok := <-done; !ok {
 				return
 			}
@@ -208,7 +216,7 @@ func (s *retryableSynchronizer) binding(op *Operation, t DynamicAssignment) erro
 		Resource: targetRes,
 	}
 
-	err := s.core.CreateBind(source, target)
+	err := s.core.synchronizer.CreateBind(source, target)
 	if err != nil {
 		return fmt.Errorf("retryable synchronizer binding error: %v", err)
 	}
@@ -216,25 +224,23 @@ func (s *retryableSynchronizer) binding(op *Operation, t DynamicAssignment) erro
 }
 
 type clusterSearcher struct {
-	sCluster  string
-	tCluster  string
-	sOperator kubernetes.NamespaceableResourceInterface[unstructured.Unstructured]
-	tOperator kubernetes.NamespaceableResourceInterface[unstructured.Unstructured]
+	targetOperators cmap.ConcurrentMap[kubernetes.DynamicNamespaceableOperator]
+	sourceOperators cmap.ConcurrentMap[kubernetes.DynamicNamespaceableOperator]
 }
 
-func newClusterSearcher(
-	sCluster string,
-	tCluster string,
-	sOperator kubernetes.NamespaceableResourceInterface[unstructured.Unstructured],
-	tOperator kubernetes.NamespaceableResourceInterface[unstructured.Unstructured],
-) coresync.ObjectSearcher[DynamicLabelObject, DynamicLabelObject] {
-
+func newClusterSearcher() *clusterSearcher {
 	return &clusterSearcher{
-		sCluster:  sCluster,
-		tCluster:  tCluster,
-		sOperator: sOperator,
-		tOperator: tOperator,
+		targetOperators: cmap.New[kubernetes.DynamicNamespaceableOperator](),
+		sourceOperators: cmap.New[kubernetes.DynamicNamespaceableOperator](),
 	}
+}
+
+func (g *clusterSearcher) addTargetOperator(cluster string, operator kubernetes.DynamicNamespaceableOperator) {
+	g.targetOperators.Set(cluster, operator)
+}
+
+func (g *clusterSearcher) addSourceOperator(cluster string, operator kubernetes.DynamicNamespaceableOperator) {
+	g.sourceOperators.Set(cluster, operator)
 }
 
 func (g *clusterSearcher) GetTarget(target *DynamicLabelObject) (*DynamicLabelObject, bool) {
@@ -242,9 +248,15 @@ func (g *clusterSearcher) GetTarget(target *DynamicLabelObject) (*DynamicLabelOb
 		return nil, false
 	}
 
+	operator, err := g.getOperator(target, g.targetOperators)
+	if err != nil {
+		logrus.Debugf("can not get operator due to %v", err)
+		return nil, false
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	res, err := g.tOperator.Namespace(target.Resource.GetNamespace()).Get(ctx, target.Resource.GetName(), metav1.GetOptions{})
+	res, err := operator.Namespace(target.Resource.GetNamespace()).Get(ctx, target.Resource.GetName(), metav1.GetOptions{})
 	if err != nil {
 		return nil, false
 	}
@@ -257,17 +269,20 @@ func (g *clusterSearcher) GetTarget(target *DynamicLabelObject) (*DynamicLabelOb
 
 func (g *clusterSearcher) ListTarget() []*DynamicLabelObject {
 	result := []*DynamicLabelObject{}
-	resList, err := g.tOperator.ListSlice(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		logrus.Errorf("can not list resource due to %v", err)
-		return nil
-	}
 
-	for _, res := range resList {
-		result = append(result, &DynamicLabelObject{
-			Label:    map[string]string{ClusterLabel: g.tCluster},
-			Resource: res.DeepCopy(),
-		})
+	for clusterName, operator := range g.targetOperators.Items() {
+		resList, err := operator.ListSlice(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			logrus.Errorf("can not list resource due to %v", err)
+			return nil
+		}
+
+		for _, res := range resList {
+			result = append(result, &DynamicLabelObject{
+				Label:    map[string]string{ClusterLabel: clusterName},
+				Resource: res.DeepCopy(),
+			})
+		}
 	}
 	return result
 }
@@ -277,7 +292,13 @@ func (g *clusterSearcher) GetSource(source *DynamicLabelObject) (*DynamicLabelOb
 		return nil, false
 	}
 
-	res, err := g.sOperator.Namespace(source.Resource.GetNamespace()).Get(context.Background(),
+	operator, err := g.getOperator(source, g.sourceOperators)
+	if err != nil {
+		logrus.Debugf("can not get operator due to %v", err)
+		return nil, false
+	}
+
+	res, err := operator.Namespace(source.Resource.GetNamespace()).Get(context.Background(),
 		source.Resource.GetName(), metav1.GetOptions{})
 	if err != nil {
 		return nil, false
@@ -291,19 +312,36 @@ func (g *clusterSearcher) GetSource(source *DynamicLabelObject) (*DynamicLabelOb
 
 func (g *clusterSearcher) ListSource() []*DynamicLabelObject {
 	result := []*DynamicLabelObject{}
-	resList, err := g.sOperator.ListSlice(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		logrus.Errorf("can not list source resource due to %v", err)
-		return nil
-	}
+	for clusterName, operator := range g.sourceOperators.Items() {
+		resList, err := operator.ListSlice(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			logrus.Errorf("can not list source resource due to %v", err)
+			return nil
+		}
 
-	for _, res := range resList {
-		result = append(result, &DynamicLabelObject{
-			Label:    map[string]string{ClusterLabel: g.sCluster},
-			Resource: res.DeepCopy(),
-		})
+		for _, res := range resList {
+			result = append(result, &DynamicLabelObject{
+				Label:    map[string]string{ClusterLabel: clusterName},
+				Resource: res.DeepCopy(),
+			})
+		}
 	}
 	return result
+}
+
+func (g *clusterSearcher) getOperator(obj *DynamicLabelObject,
+	operatorMap cmap.ConcurrentMap[kubernetes.DynamicNamespaceableOperator]) (kubernetes.DynamicNamespaceableOperator, error) {
+	clusterName, ok := obj.Label[ClusterLabel]
+	if !ok {
+		return nil, fmt.Errorf("cluster label can not be found")
+	}
+
+	operator, ok := operatorMap.Get(clusterName)
+	if !ok {
+		logrus.Debugf("can not get operator on cluster named %s", clusterName)
+		return nil, fmt.Errorf("can not get operator on cluster named %s", clusterName)
+	}
+	return operator, nil
 }
 
 func createQuery(cluster string, namespace, name string) *DynamicLabelObject {

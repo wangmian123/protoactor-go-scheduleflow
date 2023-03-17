@@ -219,6 +219,10 @@ func (str *streamer[S, T, U]) runReceivingUpdateChannel(ctx context.Context) {
 				"channel %d receive type %T expected *T", str.name, chosen, value)
 		}
 
+		if src == nil {
+			return nil
+		}
+
 		str.onUpdateEvent(src)
 		return nil
 	})
@@ -235,6 +239,10 @@ func (str *streamer[S, T, U]) runReceivingOutflowChannel(ctx context.Context) {
 		task, err := str.influx.outflowResource(src)
 		if err != nil {
 			return fmt.Errorf("deleting error %v", err)
+		}
+
+		if task == nil {
+			return nil
 		}
 
 		err = str.creatingQueue.EnqueueTask(task,
