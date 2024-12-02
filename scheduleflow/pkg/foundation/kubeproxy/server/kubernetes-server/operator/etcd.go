@@ -59,7 +59,7 @@ func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response
 		Create(ctx, resource, *opt, info.SubResources...)
 	endTime := time.Now()
 	duration := endTime.Sub(startTime).Milliseconds()
-	logrus.Infof("[OperatorAPI] create %s cost: %vms", "", duration)
+	logrus.Infof("[OperatorAPI] create %s cost: %vms", ope.gvr.Resource, duration)
 	if err != nil {
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}
