@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/sirupsen/logrus"
@@ -15,6 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
 )
 
 var json jsoniter.API
@@ -22,6 +23,10 @@ var json jsoniter.API
 func init() {
 	json = jsoniter.ConfigCompatibleWithStandardLibrary
 }
+
+const (
+	defaultCreateTimeout = 10 * time.Second
+)
 
 func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response, error) {
 	if err := checkKubernetesBaseInformation(info); err != nil {
@@ -47,8 +52,10 @@ func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response
 	// resolve resourceVersion should not be set on objects to be created
 	resource.SetResourceVersion("")
 
+	ctx, concel := context.WithTimeout(context.Background(), defaultCreateTimeout)
+	defer concel()
 	resource, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
-		Create(context.Background(), resource, *opt, info.SubResources...)
+		Create(ctx, resource, *opt, info.SubResources...)
 	if err != nil {
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}

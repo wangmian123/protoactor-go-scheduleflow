@@ -3,15 +3,16 @@ package operator
 import (
 	"fmt"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
-	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 	cmap "github.com/orcaman/concurrent-map"
 	ants "github.com/panjf2000/ants/v2"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/apis/kubeproxy"
+	"github.com/asynkron/protoactor-go/scheduleflow/pkg/foundation/middleware/informer"
 )
 
 const (
@@ -112,7 +113,7 @@ func (ope *resourceOperator) limitingOperate(ctx actor.Context, env *actor.Messa
 	}
 
 	if pool.Free() == 0 {
-		return createKubernetesAPIErrorResponse(info, fmt.Errorf("too many request, try later")), nil
+		return createKubernetesAPIErrorResponse(info, fmt.Errorf("too many request, please try later")), nil
 	}
 
 	err := pool.Submit(func() { ope.operateResource(ctx, env) })
