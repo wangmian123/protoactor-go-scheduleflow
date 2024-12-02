@@ -52,10 +52,14 @@ func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response
 	// resolve resourceVersion should not be set on objects to be created
 	resource.SetResourceVersion("")
 
-	ctx, concel := context.WithTimeout(context.Background(), defaultCreateTimeout)
-	defer concel()
+	startTime := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCreateTimeout)
+	defer cancel()
 	resource, err = ope.Resource(ope.gvr).Namespace(info.Metadata.Namespace).
 		Create(ctx, resource, *opt, info.SubResources...)
+	endTime := time.Now()
+	duration := endTime.Sub(startTime).Milliseconds()
+	logrus.Infof("[OperatorAPI] create %s cost: %vms", "", duration)
 	if err != nil {
 		return createKubernetesAPIErrorResponse(info, err), nil
 	}

@@ -38,6 +38,7 @@ func newOperatorAPI(gvr *kubeproxy.GroupVersionResource, client dynamic.Interfac
 	if updatingPool == 0 {
 		updatingPool = defaultUpdatingPool
 	}
+	logrus.Infof("[OperatorAPI] creation pool: %v, updation poll: %v", creationPool, updatingPool)
 
 	cPool, err := ants.NewPool(creationPool)
 	if err != nil {
