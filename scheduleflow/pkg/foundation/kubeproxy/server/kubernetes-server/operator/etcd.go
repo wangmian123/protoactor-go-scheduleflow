@@ -25,7 +25,7 @@ func init() {
 }
 
 const (
-	defaultCreateTimeout = 10 * time.Second
+	defaultCreateTimeout = 30 * time.Second
 )
 
 func (ope *resourceOperator) create(info *kubeproxy.Create) (*kubeproxy.Response, error) {
